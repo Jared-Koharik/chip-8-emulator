@@ -129,6 +129,8 @@ static bool initContext(AppContext *restrict context) {
     return false;
   }
 
+  return true;
+
 }
 
 static bool initChip8(Chip8 *restrict chip8) {
