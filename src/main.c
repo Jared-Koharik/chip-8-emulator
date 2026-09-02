@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -17,6 +18,8 @@
 #define FONT_ADDRESS 0x50
 
 #define PROGRAM_START 0x200
+
+#define ROM_FILE "test-roms/1-chip8-logo.ch8"
 
 typedef struct Chip8 {
 
@@ -46,11 +49,13 @@ static bool setup(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 static bool initContext(AppContext *restrict pcontext);
 static bool initChip8(Chip8 *restrict pchip8);
 
-static void close(AppContext *restrict pcontext, Chip8 *restrict chip8);
+static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath);
 
 static bool executeNextInstruction(Chip8 *restrict chip8);
 
-int main(void) {
+static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8);
+
+int main(int argc, char *argv[]) {
 
   int quit = false;
 
@@ -90,7 +95,7 @@ int main(void) {
   return EXIT_SUCCESS;
 }
 
-static bool setup(AppContext *restrict context, Chip8 *restrict chip8) {
+static bool setup(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 
   if( !SDL_SetAppMetadata("Chip 8 Emulator", "1.0", NULL) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set meta data: %s", SDL_GetError());
@@ -102,11 +107,11 @@ static bool setup(AppContext *restrict context, Chip8 *restrict chip8) {
     return false;
   }
 
-  if( !initContext(context) ) {
+  if( !initContext(pcontext) ) {
     return false;
   }
 
-  if( !initChip8(chip8) ) {
+  if( !initChip8(pchip8) ) {
     return false;
   }
 
@@ -114,17 +119,17 @@ static bool setup(AppContext *restrict context, Chip8 *restrict chip8) {
 
 }
 
-static bool initContext(AppContext *restrict context) {
+static bool initContext(AppContext *restrict pcontext) {
 
-  context->width = LOGICAL_WIDTH * 10;
-  context->height = LOGICAL_HEIGHT * 10;
+  pcontext->width = LOGICAL_WIDTH * 10;
+  pcontext->height = LOGICAL_HEIGHT * 10;
 
-  if( !SDL_CreateWindowAndRenderer("Chip 8 Emulator", context->width, context->height, 0x0, &(context->pwindow), &(context->prenderer)) ) {
+  if( !SDL_CreateWindowAndRenderer("Chip 8 Emulator", pcontext->width, pcontext->height, 0x0, &(pcontext->pwindow), &(pcontext->prenderer)) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failure to create window: %s", SDL_GetError());
     return false;
   }
 
-  if( !SDL_SetRenderLogicalPresentation(context->prenderer, LOGICAL_WIDTH, LOGICAL_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX) ) {
+  if( !SDL_SetRenderLogicalPresentation(pcontext->prenderer, LOGICAL_WIDTH, LOGICAL_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set logical representation to letterbox: %s", SDL_GetError());
     return false;
   }
@@ -133,9 +138,9 @@ static bool initContext(AppContext *restrict context) {
 
 }
 
-static bool initChip8(Chip8 *restrict chip8) {
+static bool initChip8(Chip8 *restrict pchip8) {
 
-  chip8->programCounter = PROGRAM_START;
+  pchip8->programCounter = PROGRAM_START;
 
   // Add the characters into memory for ROMs to use
   const uint8_t characters[FONT_SIZE] = {
@@ -158,21 +163,48 @@ static bool initChip8(Chip8 *restrict chip8) {
   };
 
   for(uint i = 0; i < FONT_SIZE; i++) {
-    chip8->memory[FONT_ADDRESS + i] = characters[i];
+    pchip8->memory[FONT_ADDRESS + i] = characters[i];
   }
+
+  if( !loadROM(pchip8, ROM_FILE) ) return false;
 
   return true;
 
 }
 
-static void close(AppContext *restrict context, Chip8 *restrict chip8) {
+static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
 
-  SDL_DestroyRenderer(context->prenderer);
-  SDL_DestroyWindow(context->pwindow);
+  FILE *pROM = fopen(pfilePath, "r");
+  if( pROM == NULL ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Can not open file %s", pfilePath);
+    return false;
+  }
+
+  size_t numRead = fread(pchip8->memory + PROGRAM_START, sizeof(uint8_t), AVAILABLE_MEMORY, pROM);
+  if( ferror(pROM) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Can not read from file %s", pfilePath);
+    fclose(pROM);
+    return false;
+  } else if (feof(pROM)) {
+    SDL_Log("Succesful full read from file: %s\n Read count: %lu", pfilePath, numRead);
+  } else {
+    SDL_Log("Succesful partial read from file: %s\n Read count: %lu", pfilePath, numRead);
+  }
+
+  fclose(pROM);
+
+  return true;
 
 }
 
-static bool executeNextInstruction(Chip8 *restrict chip8) {
+static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
+
+  SDL_DestroyRenderer(pcontext->prenderer);
+  SDL_DestroyWindow(pcontext->pwindow);
+
+}
+
+static bool executeNextInstruction(Chip8 *restrict pchip8) {
 
   switch(0x0) {
     case 0x0:
