@@ -21,7 +21,11 @@
 
 #define ROM_FILE "test-roms/1-chip8-logo.ch8"
 
+#define INSTRUCTIONS_PER_SECOND 60
+
 typedef struct Chip8 {
+
+  uint32_t screenPixels[LOGICAL_WIDTH * LOGICAL_HEIGHT];
 
   uint16_t stack[16];
   uint16_t addressRegister;
@@ -29,7 +33,6 @@ typedef struct Chip8 {
   uint16_t opcode;
 
   uint8_t memory[MEMORY_SIZE];
-  uint8_t screenPixels[LOGICAL_WIDTH * LOGICAL_HEIGHT];
   uint8_t generalRegisters[16];
   uint8_t keypad[16];
   uint8_t stackPointer;
@@ -39,8 +42,9 @@ typedef struct Chip8 {
 } Chip8;
 
 typedef struct AppContext {
-  SDL_Window* pwindow;
-  SDL_Renderer* prenderer;
+  SDL_Window *pwindow;
+  SDL_Renderer *prenderer;
+  SDL_Texture *ptexture;
   uint width, height;
 } AppContext;
 
@@ -51,14 +55,18 @@ static bool initChip8(Chip8 *restrict pchip8);
 
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath);
 
-static bool executeNextInstruction(Chip8 *restrict chip8);
+static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
 static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
 int main(int argc, char *argv[]) {
 
-  int quit = false;
+  bool quit, executeThisStep;
+  int instructionCounter;
+  Uint64 nowTime, prevTime, deltaTime;
 
+  quit = executeThisStep = false;
+  nowTime = prevTime = instructionCounter = 0;
   AppContext context = { 0 };
   Chip8 chip8 = { 0 };
 
@@ -86,7 +94,33 @@ int main(int argc, char *argv[]) {
 
     }
 
-    SDL_RenderPresent(context.prenderer);
+    nowTime = SDL_GetTicks();
+
+    deltaTime = nowTime - prevTime;
+
+    if( instructionCounter == 2 && (deltaTime >= 16) ) {
+      instructionCounter = 0;
+      prevTime = nowTime;
+      executeThisStep = true;
+    } else if( deltaTime >= 17 ) {
+      instructionCounter++;
+      prevTime = nowTime;
+      executeThisStep = true;
+    }
+
+    if( executeThisStep ) {
+      executeNextInstruction(&context, &chip8);
+
+      SDL_UpdateTexture(context.ptexture, NULL, chip8.screenPixels, sizeof(chip8.screenPixels[0]) * LOGICAL_WIDTH);
+
+      SDL_RenderClear(context.prenderer);
+
+      SDL_RenderTexture(context.prenderer, context.ptexture, NULL, NULL);
+
+      SDL_RenderPresent(context.prenderer);
+
+      executeThisStep = false;
+    }
 
   }
 
@@ -129,6 +163,14 @@ static bool initContext(AppContext *restrict pcontext) {
     return false;
   }
 
+  SDL_SetRenderDrawColor(pcontext->prenderer, 0, 0, 0, 255);
+
+  pcontext->ptexture = SDL_CreateTexture(pcontext->prenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+  if( pcontext->ptexture == NULL ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to create texture: %s", SDL_GetError());
+    return false;
+  }
+  SDL_SetTextureScaleMode(pcontext->ptexture, SDL_SCALEMODE_NEAREST);
   if( !SDL_SetRenderLogicalPresentation(pcontext->prenderer, LOGICAL_WIDTH, LOGICAL_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set logical representation to letterbox: %s", SDL_GetError());
     return false;
@@ -174,7 +216,7 @@ static bool initChip8(Chip8 *restrict pchip8) {
 
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
 
-  FILE *pROM = fopen(pfilePath, "r");
+  FILE *pROM = fopen(pfilePath, "rb");
   if( pROM == NULL ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Can not open file %s", pfilePath);
     return false;
@@ -199,17 +241,45 @@ static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
 
 static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 
+  SDL_DestroyTexture(pcontext->ptexture);
+  pcontext->ptexture = NULL;
   SDL_DestroyRenderer(pcontext->prenderer);
+  pcontext->prenderer = NULL;
   SDL_DestroyWindow(pcontext->pwindow);
+  pcontext->pwindow = NULL;
 
 }
 
-static bool executeNextInstruction(Chip8 *restrict pchip8) {
+static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 
-  switch(0x0) {
+  uint8_t Vx, Vy, xPos, yPos, n, spriteByte, spritePixel;
+  void *pixels;
+  int pitch;
+
+  uint16_t opcode = 0x0;
+  opcode |= pchip8->memory[pchip8->programCounter] << 0x8;
+  pchip8->programCounter++;
+  opcode |= pchip8->memory[pchip8->programCounter];
+  pchip8->programCounter++;
+
+  uint8_t firstNybble = (opcode & 0xF000) >> 0xC;
+
+  switch(firstNybble) {
     case 0x0:
+
+      switch(opcode) {
+        case 0xE0:
+          memset(pchip8->screenPixels, 0, sizeof((pchip8->screenPixels)));
+          break;
+        case 0xEE:
+          break;
+        default:
+          break;
+      }
+
       break;
     case 0x1:
+      pchip8->programCounter = opcode & 0x0FFF;
       break;
     case 0x2:
       break;
@@ -220,6 +290,7 @@ static bool executeNextInstruction(Chip8 *restrict pchip8) {
     case 0x5:
       break;
     case 0x6:
+      pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] = opcode & 0x00FF;
       break;
     case 0x7:
       break;
@@ -228,12 +299,43 @@ static bool executeNextInstruction(Chip8 *restrict pchip8) {
     case 0x9:
       break;
     case 0xA:
+      pchip8->addressRegister = opcode & 0x0FFF;
       break;
     case 0xB:
       break;
     case 0xC:
       break;
     case 0xD:
+
+      pchip8->generalRegisters[0xF] = 0x0;
+
+      Vx = (opcode & 0x0F00) >> 0x8;
+      Vy = (opcode & 0x00F0) >> 0x4;
+      n = opcode & 0x000F;
+
+      xPos = pchip8->generalRegisters[Vx] % LOGICAL_WIDTH;
+      yPos = pchip8->generalRegisters[Vy] % LOGICAL_HEIGHT;
+
+      for(uint row = 0; row < n; row++) {
+
+        spriteByte = pchip8->memory[pchip8->addressRegister + row];
+
+        for(uint column = 0; column < 8; column++) {
+
+          spritePixel = spriteByte & ( 0x80u >> column );
+
+          if(spritePixel > 0) {
+
+            if(pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] > 0) {
+              pchip8->generalRegisters[0xF] = 1;
+            }
+            
+            pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] ^= 0xFFFFFFFF;
+          }
+
+        }
+      }
+
       break;
     case 0xE:
       break;
