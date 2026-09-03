@@ -7,4 +7,4 @@ Sources:
 
 
 TO-DO:
-1. Add test suite: https://github.com/Timendus/chip8-test-suite
+1. Add full test suite: https://github.com/Timendus/chip8-test-suite

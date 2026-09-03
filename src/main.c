@@ -6,8 +6,6 @@
 #define LOGICAL_WIDTH 64
 #define LOGICAL_HEIGHT 32
 
-#define FILE_TO_LOAD "test-suite-files/1-chip8-logo.ch8"
-
 #define MEMORY_SIZE 4096
 #define RESERVED_MEMORY_FOR_INTERPRETER 512
 #define RESERVED_MEMORY_FOR_INTERNAL 96
@@ -19,7 +17,7 @@
 
 #define PROGRAM_START 0x200
 
-#define ROM_FILE "test-roms/1-chip8-logo.ch8"
+#define ROM_FILE "test-roms/2-ibm-logo.ch8"
 
 #define INSTRUCTIONS_PER_SECOND 60
 
@@ -293,6 +291,7 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
       pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] = opcode & 0x00FF;
       break;
     case 0x7:
+      pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] += opcode & 0x00FF;
       break;
     case 0x8:
       break;
