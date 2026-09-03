@@ -17,7 +17,7 @@
 
 #define PROGRAM_START 0x200
 
-#define ROM_FILE "test-roms/3-corax+.ch8"
+#define ROM_FILE "test-roms/4-flags.ch8"
 
 #define INSTRUCTIONS_PER_SECOND 60
 #define FAST_INSTRUCTIONS
@@ -308,11 +308,12 @@ static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode) {
     case 0x5:
       prevValue = reg[Vx];
       reg[Vx] -= reg[Vy];
-      reg[0xF] = reg[Vx] > prevValue;
+      reg[0xF] = reg[Vx] < prevValue;
       break;
     case 0x6:
-      reg[0xF] = reg[Vx] & 0x1;
+      prevValue = reg[Vx] & 0x1;
       reg[Vx] >>= 1;
+      reg[0xF] = prevValue;
       break;
     case 0x7:
       prevValue = reg[Vy];
@@ -320,8 +321,9 @@ static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode) {
       reg[0xF] = reg[Vx] <= prevValue;
       break;
     case 0xE:
-      reg[0xF] = (reg[Vx] & 0x80) >> 0x7;
+      prevValue = (reg[Vx] & 0x80) >> 0x7;
       reg[Vx] <<= 1;
+      reg[0xF] = prevValue;
       break;
     default:
       break;
