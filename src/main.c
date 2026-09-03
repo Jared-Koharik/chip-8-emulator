@@ -17,9 +17,10 @@
 
 #define PROGRAM_START 0x200
 
-#define ROM_FILE "test-roms/2-ibm-logo.ch8"
+#define ROM_FILE "test-roms/3-corax+.ch8"
 
 #define INSTRUCTIONS_PER_SECOND 60
+#define FAST_INSTRUCTIONS
 
 typedef struct Chip8 {
 
@@ -52,6 +53,9 @@ static bool initContext(AppContext *restrict pcontext);
 static bool initChip8(Chip8 *restrict pchip8);
 
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath);
+static void opcodeDXYN(Chip8 *restrict pchip8, uint16_t opcode);
+static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode);
+static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode);
 
 static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
@@ -106,6 +110,9 @@ int main(int argc, char *argv[]) {
       executeThisStep = true;
     }
 
+    #ifdef FAST_INSTRUCTIONS
+    executeThisStep = true;
+    #endif
     if( executeThisStep ) {
       executeNextInstruction(&context, &chip8);
 
@@ -237,6 +244,133 @@ static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
 
 }
 
+static void opcodeDXYN(Chip8 *restrict pchip8, uint16_t opcode) {
+
+  pchip8->generalRegisters[0xF] = 0x0;
+
+  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+  uint8_t n = opcode & 0x000F;
+
+  uint8_t xPos = pchip8->generalRegisters[Vx] % LOGICAL_WIDTH;
+  uint8_t yPos = pchip8->generalRegisters[Vy] % LOGICAL_HEIGHT;
+
+  for(uint row = 0; row < n; row++) {
+
+    uint8_t spriteByte = pchip8->memory[pchip8->addressRegister + row];
+
+    for(uint column = 0; column < 8; column++) {
+
+      uint8_t spritePixel = spriteByte & ( 0x80u >> column );
+
+      if(spritePixel > 0) {
+
+        if(pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] > 0) {
+          pchip8->generalRegisters[0xF] = 1;
+        }
+        
+        pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] ^= 0xFFFFFFFF;
+      }
+
+    }
+  }
+
+}
+
+static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode) {
+
+  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+  uint8_t type = opcode & 0x000F;
+
+  uint8_t prevValue;
+
+  uint8_t *reg = pchip8->generalRegisters;
+
+  switch(type) {
+    case 0x0:
+      reg[Vx] = reg[Vy];
+      break;
+    case 0x1:
+      reg[Vx] |= reg[Vy];
+      break;
+    case 0x2:
+      reg[Vx] &= reg[Vy];
+      break;
+    case 0x3:
+      reg[Vx] ^= reg[Vy];
+      break;
+    case 0x4:
+      prevValue = reg[Vx];
+      reg[Vx] += reg[Vy];
+      reg[0xF] = reg[Vx] < prevValue;
+      break;
+    case 0x5:
+      prevValue = reg[Vx];
+      reg[Vx] -= reg[Vy];
+      reg[0xF] = reg[Vx] > prevValue;
+      break;
+    case 0x6:
+      reg[0xF] = reg[Vx] & 0x1;
+      reg[Vx] >>= 1;
+      break;
+    case 0x7:
+      prevValue = reg[Vy];
+      reg[Vx] = reg[Vy] - reg[Vx];
+      reg[0xF] = reg[Vx] <= prevValue;
+      break;
+    case 0xE:
+      reg[0xF] = (reg[Vx] & 0x80) >> 0x7;
+      reg[Vx] <<= 1;
+      break;
+    default:
+      break;
+  }
+
+}
+
+static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
+
+  uint16_t address;
+
+  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  uint8_t type = opcode & 0x00FF;
+
+  switch(type) {
+    case 0x07:
+      break;
+    case 0x0A:
+      break;
+    case 0x15:
+      break;
+    case 0x18:
+      break;
+    case 0x1E:
+      pchip8->addressRegister += pchip8->generalRegisters[Vx];
+      break;
+    case 0x29:
+      break;
+    case 0x33:
+      pchip8->memory[pchip8->addressRegister] = pchip8->generalRegisters[Vx] / 100;
+      pchip8->memory[pchip8->addressRegister + 1] = (pchip8->generalRegisters[Vx] / 10) % 10;
+      pchip8->memory[pchip8->addressRegister + 2] = pchip8->generalRegisters[Vx] % 10;
+      break;
+    case 0x55:
+      for(uint i = 0; i <= Vx; i++) {
+        pchip8->memory[pchip8->addressRegister + i] = pchip8->generalRegisters[i];
+      }
+      break;
+    case 0x65:
+      for(uint i = 0; i <= Vx; i++) {
+        pchip8->generalRegisters[i] = pchip8->memory[pchip8->addressRegister + i];
+      }
+      break;
+    default:
+      break;
+  }
+
+}
+
 static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 
   SDL_DestroyTexture(pcontext->ptexture);
@@ -249,10 +383,6 @@ static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 }
 
 static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
-
-  uint8_t Vx, Vy, xPos, yPos, n, spriteByte, spritePixel;
-  void *pixels;
-  int pitch;
 
   uint16_t opcode = 0x0;
   opcode |= pchip8->memory[pchip8->programCounter] << 0x8;
@@ -270,6 +400,10 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
           memset(pchip8->screenPixels, 0, sizeof((pchip8->screenPixels)));
           break;
         case 0xEE:
+          if( pchip8->stackPointer != 0) {
+            pchip8->stackPointer--;
+            pchip8->programCounter = pchip8->stack[pchip8->stackPointer];
+          }
           break;
         default:
           break;
@@ -280,12 +414,20 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
       pchip8->programCounter = opcode & 0x0FFF;
       break;
     case 0x2:
+      if( pchip8->stackPointer < 16) {
+        pchip8->stack[pchip8->stackPointer] = pchip8->programCounter;
+        pchip8->stackPointer++;
+        pchip8->programCounter = opcode & 0x0FFF;
+      } 
       break;
     case 0x3:
+      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] == (uint8_t)(opcode & 0x00FF) ) pchip8->programCounter += 2;
       break;
     case 0x4:
+      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] != (uint8_t)(opcode & 0x00FF) ) pchip8->programCounter += 2;
       break;
     case 0x5:
+      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] == pchip8->generalRegisters[(opcode & 0x00F0) >> 0x4] ) pchip8->programCounter += 2;
       break;
     case 0x6:
       pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] = opcode & 0x00FF;
@@ -294,8 +436,10 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
       pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] += opcode & 0x00FF;
       break;
     case 0x8:
+      opcode8XYN(pchip8, opcode);
       break;
     case 0x9:
+      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] != pchip8->generalRegisters[(opcode & 0x00F0) >> 0x4] ) pchip8->programCounter += 2;
       break;
     case 0xA:
       pchip8->addressRegister = opcode & 0x0FFF;
@@ -305,40 +449,12 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
     case 0xC:
       break;
     case 0xD:
-
-      pchip8->generalRegisters[0xF] = 0x0;
-
-      Vx = (opcode & 0x0F00) >> 0x8;
-      Vy = (opcode & 0x00F0) >> 0x4;
-      n = opcode & 0x000F;
-
-      xPos = pchip8->generalRegisters[Vx] % LOGICAL_WIDTH;
-      yPos = pchip8->generalRegisters[Vy] % LOGICAL_HEIGHT;
-
-      for(uint row = 0; row < n; row++) {
-
-        spriteByte = pchip8->memory[pchip8->addressRegister + row];
-
-        for(uint column = 0; column < 8; column++) {
-
-          spritePixel = spriteByte & ( 0x80u >> column );
-
-          if(spritePixel > 0) {
-
-            if(pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] > 0) {
-              pchip8->generalRegisters[0xF] = 1;
-            }
-            
-            pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] ^= 0xFFFFFFFF;
-          }
-
-        }
-      }
-
+      opcodeDXYN(pchip8, opcode);
       break;
     case 0xE:
       break;
     case 0xF:
+      opcodeFXNN(pchip8, opcode);
       break;
     default:
       break;
