@@ -17,10 +17,10 @@
 
 #define PROGRAM_START 0x200
 
-#define ROM_FILE "test-roms/4-flags.ch8"
+#define ROM_FILE "test-roms/6-keypad.ch8"
 
 #define INSTRUCTIONS_PER_SECOND 60
-#define FAST_INSTRUCTIONS
+// #define FAST_INSTRUCTIONS
 
 typedef struct Chip8 {
 
@@ -33,10 +33,15 @@ typedef struct Chip8 {
 
   uint8_t memory[MEMORY_SIZE];
   uint8_t generalRegisters[16];
-  uint8_t keypad[16];
   uint8_t stackPointer;
   uint8_t delayTimer;
   uint8_t soundTimer;
+  uint8_t pressedKey;
+
+  int numKeys;
+
+  const bool * keypad[16];
+  bool keyIsPressed;
 
 } Chip8;
 
@@ -45,6 +50,7 @@ typedef struct AppContext {
   SDL_Renderer *prenderer;
   SDL_Texture *ptexture;
   uint width, height;
+  bool quit;
 } AppContext;
 
 static bool setup(AppContext *restrict pcontext, Chip8 *restrict pchip8);
@@ -52,10 +58,13 @@ static bool setup(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 static bool initContext(AppContext *restrict pcontext);
 static bool initChip8(Chip8 *restrict pchip8);
 
+static void handleSDLEvents(AppContext *restrict pcontext);
+
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath);
 static void opcodeDXYN(Chip8 *restrict pchip8, uint16_t opcode);
 static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode);
 static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode);
+static void opcodeFX0A(Chip8 *restrict pchip8, uint16_t opcode);
 
 static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
@@ -63,11 +72,11 @@ static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
 int main(int argc, char *argv[]) {
 
-  bool quit, executeThisStep;
+  bool executeThisStep;
   int instructionCounter;
   Uint64 nowTime, prevTime, deltaTime;
 
-  quit = executeThisStep = false;
+  executeThisStep = false;
   nowTime = prevTime = instructionCounter = 0;
   AppContext context = { 0 };
   Chip8 chip8 = { 0 };
@@ -77,43 +86,30 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  while(!quit) {
+  SDL_Log("%d", *(chip8.keypad[0]));
 
-    SDL_Event event;
+  while(!context.quit) {
 
-    while(SDL_PollEvent(&event)) {
-
-      switch(event.type) {
-
-        case SDL_EVENT_QUIT:
-          quit = true;
-          break;
-
-        default:
-          break;
-
-      }
-
-    }
+    handleSDLEvents(&context);
 
     nowTime = SDL_GetTicks();
-
     deltaTime = nowTime - prevTime;
 
-    if( instructionCounter == 2 && (deltaTime >= 16) ) {
+    if(instructionCounter == 2 && deltaTime >= 1) {
       instructionCounter = 0;
-      prevTime = nowTime;
       executeThisStep = true;
-    } else if( deltaTime >= 17 ) {
+      prevTime = nowTime;
+    } else if (deltaTime >= 1) {
       instructionCounter++;
-      prevTime = nowTime;
       executeThisStep = true;
+      prevTime = nowTime;
     }
 
     #ifdef FAST_INSTRUCTIONS
     executeThisStep = true;
     #endif
-    if( executeThisStep ) {
+    if( executeThisStep && !chip8.keyIsPressed) {
+
       executeNextInstruction(&context, &chip8);
 
       SDL_UpdateTexture(context.ptexture, NULL, chip8.screenPixels, sizeof(chip8.screenPixels[0]) * LOGICAL_WIDTH);
@@ -126,6 +122,9 @@ int main(int argc, char *argv[]) {
 
       executeThisStep = false;
     }
+
+    if(chip8.soundTimer > 0) chip8.soundTimer--;
+    if(chip8.delayTimer > 0) chip8.delayTimer--;
 
   }
 
@@ -213,10 +212,49 @@ static bool initChip8(Chip8 *restrict pchip8) {
     pchip8->memory[FONT_ADDRESS + i] = characters[i];
   }
 
+  int numKeys;
+  const bool *sdlKeys = SDL_GetKeyboardState(&numKeys);
+
+  pchip8->keypad[0x0] = &(sdlKeys[SDL_SCANCODE_X]);
+  pchip8->keypad[0x1] = &(sdlKeys[SDL_SCANCODE_1]);
+  pchip8->keypad[0x2] = &(sdlKeys[SDL_SCANCODE_2]);
+  pchip8->keypad[0x3] = &(sdlKeys[SDL_SCANCODE_3]);
+  pchip8->keypad[0x4] = &(sdlKeys[SDL_SCANCODE_Q]);
+  pchip8->keypad[0x5] = &(sdlKeys[SDL_SCANCODE_W]);
+  pchip8->keypad[0x6] = &(sdlKeys[SDL_SCANCODE_E]);
+  pchip8->keypad[0x7] = &(sdlKeys[SDL_SCANCODE_A]);
+  pchip8->keypad[0x8] = &(sdlKeys[SDL_SCANCODE_S]);
+  pchip8->keypad[0x9] = &(sdlKeys[SDL_SCANCODE_D]);
+  pchip8->keypad[0xA] = &(sdlKeys[SDL_SCANCODE_Z]);
+  pchip8->keypad[0xB] = &(sdlKeys[SDL_SCANCODE_C]);
+  pchip8->keypad[0xC] = &(sdlKeys[SDL_SCANCODE_4]);
+  pchip8->keypad[0xD] = &(sdlKeys[SDL_SCANCODE_R]);
+  pchip8->keypad[0xE] = &(sdlKeys[SDL_SCANCODE_F]);
+  pchip8->keypad[0xF] = &(sdlKeys[SDL_SCANCODE_V]);
+
   if( !loadROM(pchip8, ROM_FILE) ) return false;
 
   return true;
 
+}
+
+static void handleSDLEvents(AppContext *restrict pcontext) {
+  SDL_Event event;
+
+  while(SDL_PollEvent(&event)) {
+
+    switch(event.type) {
+
+      case SDL_EVENT_QUIT:
+        pcontext->quit = true;
+        break;
+
+      default:
+        break;
+
+    }
+
+  }
 }
 
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
@@ -340,12 +378,16 @@ static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
 
   switch(type) {
     case 0x07:
+      pchip8->generalRegisters[Vx] = pchip8->delayTimer;
       break;
     case 0x0A:
+      opcodeFX0A(pchip8, opcode);
       break;
     case 0x15:
+      pchip8->soundTimer = pchip8->generalRegisters[Vx];
       break;
     case 0x18:
+      pchip8->delayTimer = pchip8->generalRegisters[Vx];
       break;
     case 0x1E:
       pchip8->addressRegister += pchip8->generalRegisters[Vx];
@@ -373,24 +415,38 @@ static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
 
 }
 
-static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
+static void opcodeFX0A(Chip8 *restrict pchip8, uint16_t opcode) {
 
-  SDL_DestroyTexture(pcontext->ptexture);
-  pcontext->ptexture = NULL;
-  SDL_DestroyRenderer(pcontext->prenderer);
-  pcontext->prenderer = NULL;
-  SDL_DestroyWindow(pcontext->pwindow);
-  pcontext->pwindow = NULL;
+
+  uint8_t Vx = (opcode & 0x0F00) >> 8;
+
+  if(pchip8->keyIsPressed) {
+    pchip8->programCounter -= 2;
+  } else {
+    pchip8->keyIsPressed = false;
+    for(uint i = 0; i <= 0xf; i++) {
+      if(*(pchip8->keypad[i])) {
+        pchip8->keyIsPressed = true;
+        pchip8->pressedKey = i;
+        pchip8->generalRegisters[Vx] = i;
+        break;
+      }
+    }
+  }
 
 }
 
 static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 
   uint16_t opcode = 0x0;
+  uint16_t prevCode = 0x0;
   opcode |= pchip8->memory[pchip8->programCounter] << 0x8;
   pchip8->programCounter++;
   opcode |= pchip8->memory[pchip8->programCounter];
   pchip8->programCounter++;
+
+  if( prevCode != opcode ) SDL_Log("%04x", opcode);
+  uint16_t precode = opcode;
 
   uint8_t firstNybble = (opcode & 0xF000) >> 0xC;
 
@@ -447,21 +503,48 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
       pchip8->addressRegister = opcode & 0x0FFF;
       break;
     case 0xB:
+      pchip8->programCounter = opcode & 0x0FFF + pchip8->generalRegisters[0];
       break;
     case 0xC:
+      pchip8->generalRegisters[ (opcode & 0x0F00) >> 0x8 ] = (rand() % 256) & (opcode & 0x00FF);
       break;
     case 0xD:
       opcodeDXYN(pchip8, opcode);
       break;
     case 0xE:
+
+      switch(opcode & 0x00FF) {
+        case 0x9E:
+          if(*(pchip8->keypad[ pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] & 0xF])) pchip8->programCounter += 2;
+          break;
+        case 0xA1:
+          if(!(*(pchip8->keypad[ pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] & 0xF]))) pchip8->programCounter += 2;
+          break;
+        default:
+          break;
+      }
+
       break;
     case 0xF:
       opcodeFXNN(pchip8, opcode);
       break;
     default:
+      SDL_Log("Type not recognized");
       break;
   }
 
   return true;
 
 }
+
+static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
+
+  SDL_DestroyTexture(pcontext->ptexture);
+  pcontext->ptexture = NULL;
+  SDL_DestroyRenderer(pcontext->prenderer);
+  pcontext->prenderer = NULL;
+  SDL_DestroyWindow(pcontext->pwindow);
+  pcontext->pwindow = NULL;
+
+}
+
