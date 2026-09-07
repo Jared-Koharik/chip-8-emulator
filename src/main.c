@@ -17,9 +17,11 @@
 
 #define PROGRAM_START 0x200
 
+#define TIMER_FREQ 60
+#define INSTRUCTION_FREQ 500
+
 #define ROM_FILE "test-roms/6-keypad.ch8"
 
-#define INSTRUCTIONS_PER_SECOND 60
 // #define FAST_INSTRUCTIONS
 
 typedef struct Chip8 {
@@ -72,21 +74,18 @@ static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
 int main(int argc, char *argv[]) {
 
-  bool executeThisStep;
-  int instructionCounter;
   Uint64 nowTime, prevTime, deltaTime;
+  Uint64 nowTimeTimer, prevTimeTimer, deltaTimeTimer;
 
-  executeThisStep = false;
-  nowTime = prevTime = instructionCounter = 0;
   AppContext context = { 0 };
   Chip8 chip8 = { 0 };
+
+  prevTime = prevTimeTimer = 0;
 
   if( !setup(&context, &chip8) ) {
     close(&context, &chip8);
     return EXIT_FAILURE;
   }
-
-  SDL_Log("%d", *(chip8.keypad[0]));
 
   while(!context.quit) {
 
@@ -94,21 +93,7 @@ int main(int argc, char *argv[]) {
 
     nowTime = SDL_GetTicks();
     deltaTime = nowTime - prevTime;
-
-    if(instructionCounter == 2 && deltaTime >= 1) {
-      instructionCounter = 0;
-      executeThisStep = true;
-      prevTime = nowTime;
-    } else if (deltaTime >= 1) {
-      instructionCounter++;
-      executeThisStep = true;
-      prevTime = nowTime;
-    }
-
-    #ifdef FAST_INSTRUCTIONS
-    executeThisStep = true;
-    #endif
-    if( executeThisStep && !chip8.keyIsPressed) {
+    if(deltaTime >= (1000 / INSTRUCTION_FREQ)) {
 
       executeNextInstruction(&context, &chip8);
 
@@ -120,11 +105,17 @@ int main(int argc, char *argv[]) {
 
       SDL_RenderPresent(context.prenderer);
 
-      executeThisStep = false;
+      prevTime = nowTime;
+
     }
 
-    if(chip8.soundTimer > 0) chip8.soundTimer--;
-    if(chip8.delayTimer > 0) chip8.delayTimer--;
+    nowTimeTimer = SDL_GetTicks();
+    deltaTimeTimer = nowTimeTimer - prevTimeTimer;
+    if(deltaTimeTimer >= 1000 / TIMER_FREQ) {
+      if(chip8.soundTimer > 0) chip8.soundTimer--;
+      if(chip8.delayTimer > 0) chip8.delayTimer--;
+      prevTimeTimer = nowTimeTimer;
+    }
 
   }
 
@@ -364,6 +355,7 @@ static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode) {
       reg[0xF] = prevValue;
       break;
     default:
+      exit(EXIT_FAILURE);
       break;
   }
 
@@ -393,6 +385,7 @@ static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
       pchip8->addressRegister += pchip8->generalRegisters[Vx];
       break;
     case 0x29:
+      pchip8->addressRegister = FONT_ADDRESS + (pchip8->generalRegisters[Vx] * 5);
       break;
     case 0x33:
       pchip8->memory[pchip8->addressRegister] = pchip8->generalRegisters[Vx] / 100;
@@ -410,6 +403,7 @@ static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
       }
       break;
     default:
+      exit(EXIT_FAILURE);
       break;
   }
 
@@ -417,21 +411,24 @@ static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
 
 static void opcodeFX0A(Chip8 *restrict pchip8, uint16_t opcode) {
 
-
   uint8_t Vx = (opcode & 0x0F00) >> 8;
 
   if(pchip8->keyIsPressed) {
-    pchip8->programCounter -= 2;
+    if(*(pchip8->keypad[pchip8->pressedKey])) {
+      pchip8->programCounter -= 2;
+    } else {
+      pchip8->keyIsPressed = false;
+      pchip8->generalRegisters[Vx] = pchip8->pressedKey;
+    }
   } else {
-    pchip8->keyIsPressed = false;
     for(uint i = 0; i <= 0xf; i++) {
       if(*(pchip8->keypad[i])) {
         pchip8->keyIsPressed = true;
         pchip8->pressedKey = i;
-        pchip8->generalRegisters[Vx] = i;
         break;
       }
     }
+    pchip8->programCounter -= 2;
   }
 
 }
@@ -445,8 +442,8 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
   opcode |= pchip8->memory[pchip8->programCounter];
   pchip8->programCounter++;
 
-  if( prevCode != opcode ) SDL_Log("%04x", opcode);
-  uint16_t precode = opcode;
+  // if( prevCode != opcode ) SDL_Log("%04x", opcode);
+  // uint16_t precode = opcode;
 
   uint8_t firstNybble = (opcode & 0xF000) >> 0xC;
 
@@ -503,7 +500,7 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
       pchip8->addressRegister = opcode & 0x0FFF;
       break;
     case 0xB:
-      pchip8->programCounter = opcode & 0x0FFF + pchip8->generalRegisters[0];
+      pchip8->programCounter = (opcode & 0x0FFF) + pchip8->generalRegisters[0];
       break;
     case 0xC:
       pchip8->generalRegisters[ (opcode & 0x0F00) >> 0x8 ] = (rand() % 256) & (opcode & 0x00FF);
@@ -529,7 +526,7 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
       opcodeFXNN(pchip8, opcode);
       break;
     default:
-      SDL_Log("Type not recognized");
+      exit(EXIT_FAILURE);
       break;
   }
 
