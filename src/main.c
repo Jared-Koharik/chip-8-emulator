@@ -3,26 +3,44 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+// Defining the dimensions of the Chip8 screen
 #define LOGICAL_WIDTH 64
 #define LOGICAL_HEIGHT 32
 
-#define MEMORY_SIZE 4096
-#define RESERVED_MEMORY_FOR_INTERPRETER 512
-#define RESERVED_MEMORY_FOR_INTERNAL 96
-#define RESERVED_MEMORY_FOR_REFRESH 256
-#define AVAILABLE_MEMORY (MEMORY_SIZE - RESERVED_MEMORY_FOR_INTERPRETER - RESERVED_MEMORY_FOR_INTERNAL - RESERVED_MEMORY_FOR_REFRESH)
+// Defining values of different parts of memory in the Chip8
+  // The Chip8 system has a total of 4096 bytes of memory with some reserved sections
+  #define MEMORY_SIZE 4096
+  #define RESERVED_MEMORY_FOR_INTERPRETER 512
+  #define RESERVED_MEMORY_FOR_INTERNAL 96
+  #define RESERVED_MEMORY_FOR_REFRESH 256
+  #define AVAILABLE_MEMORY (MEMORY_SIZE - RESERVED_MEMORY_FOR_INTERPRETER - RESERVED_MEMORY_FOR_INTERNAL - RESERVED_MEMORY_FOR_REFRESH)
+  #define FONT_SIZE 80
+  #define FONT_ADDRESS 0x50
+  #define PROGRAM_START 0x200
 
-#define FONT_SIZE 80
-#define FONT_ADDRESS 0x50
+// Defining how many times per second certain actions are taken
+  // Timers, Rendering, and Instruction execution
+    // We want the timer to decrement 60 times a second per the Chip8 specification
+    #define TIMER_FREQ_S 60.0f
+    // This allows for specifying how often the screen is redrawn
+    #define RENDER_FREQ_S 60.0f
+    // This allows for specifying how fast we want the Chip8 ROM to run
+    #define INSTRUCTION_FREQ_S 500.0f
 
-#define PROGRAM_START 0x200
+    #define MS_PER_TIMER_DECREMENT (1000.0 / TIMER_FREQ_S)
+    #define MS_PER_RENDER_PASS (1000.0 / RENDER_FREQ_S)
+    #define MS_PER_INSTRUCTION_EXECUTE (1000.0 / INSTRUCTION_FREQ_S)
 
-#define TIMER_FREQ 60
-#define INSTRUCTION_FREQ 500
+// Defining the square wave that will play when the sound timer is non-zero
+#define WAVE_AMPLITUDE 0.1f  
+#define WAVE_CYCLE_PER_S 110.0f
+#define SAMPLE_PER_S 44100.0f
+#define SOUND_LENGTH_S 0.5f
 
+#define CYCLES_PER_
+
+// Allows specifying the rom file that will be loaded
 #define ROM_FILE "test-roms/6-keypad.ch8"
-
-// #define FAST_INSTRUCTIONS
 
 typedef struct Chip8 {
 
@@ -40,8 +58,6 @@ typedef struct Chip8 {
   uint8_t soundTimer;
   uint8_t pressedKey;
 
-  int numKeys;
-
   const bool * keypad[16];
   bool keyIsPressed;
 
@@ -51,11 +67,14 @@ typedef struct AppContext {
   SDL_Window *pwindow;
   SDL_Renderer *prenderer;
   SDL_Texture *ptexture;
+  SDL_AudioStream *stream;
+  SDL_AudioSpec inputSpec;
+  SDL_AudioDeviceID deviceID;
   uint width, height;
   bool quit;
 } AppContext;
 
-static bool setup(AppContext *restrict pcontext, Chip8 *restrict pchip8);
+static bool startApp(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
 static bool initContext(AppContext *restrict pcontext);
 static bool initChip8(Chip8 *restrict pchip8);
@@ -70,68 +89,98 @@ static void opcodeFX0A(Chip8 *restrict pchip8, uint16_t opcode);
 
 static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
-static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8);
+static void quitApp(AppContext *restrict pcontext, Chip8 *restrict pchip8);
 
 int main(int argc, char *argv[]) {
 
-  Uint64 nowTime, prevTime, deltaTime;
-  Uint64 nowTimeTimer, prevTimeTimer, deltaTimeTimer;
+  double instructionCounter = 0.0;
+  double timerCounter = 0.0;
+  double renderCounter = 0.0;
+
+  int numSamples = (int)(SOUND_LENGTH_S * SAMPLE_PER_S);
+  double numCycles = SOUND_LENGTH_S * WAVE_CYCLE_PER_S;
+
+  double numSamplesPerCycle = numSamples / numCycles;
+
+  double secondsPerCycle = 1.0f / WAVE_CYCLE_PER_S;
+
+  float buff[numSamples];
+
+  Uint64 nowTime, prevTime, deltaTime = 0;
 
   AppContext context = { 0 };
   Chip8 chip8 = { 0 };
 
-  prevTime = prevTimeTimer = 0;
-
-  if( !setup(&context, &chip8) ) {
-    close(&context, &chip8);
+  if( !startApp(&context, &chip8) ) {
+    quitApp(&context, &chip8);
     return EXIT_FAILURE;
   }
+
+  double amplitude = WAVE_AMPLITUDE;
+  for (int sample = 0; sample < numSamples; sample++) {
+    if( sample % (int)(numSamplesPerCycle / 2.0f) == 0) amplitude *= -1;
+    buff[sample] = amplitude;
+  }
+
+  prevTime = SDL_GetTicks();
 
   while(!context.quit) {
 
     handleSDLEvents(&context);
 
     nowTime = SDL_GetTicks();
-    deltaTime = nowTime - prevTime;
-    if(deltaTime >= (1000 / INSTRUCTION_FREQ)) {
+    double deltaTime = (double)(nowTime - prevTime);
+    prevTime = nowTime;
 
+    instructionCounter += deltaTime;
+    timerCounter += deltaTime;
+    renderCounter += deltaTime;
+
+    while( instructionCounter >= MS_PER_INSTRUCTION_EXECUTE) {
       executeNextInstruction(&context, &chip8);
-
-      SDL_UpdateTexture(context.ptexture, NULL, chip8.screenPixels, sizeof(chip8.screenPixels[0]) * LOGICAL_WIDTH);
-
-      SDL_RenderClear(context.prenderer);
-
-      SDL_RenderTexture(context.prenderer, context.ptexture, NULL, NULL);
-
-      SDL_RenderPresent(context.prenderer);
-
-      prevTime = nowTime;
-
+      instructionCounter -= MS_PER_INSTRUCTION_EXECUTE;
     }
 
-    nowTimeTimer = SDL_GetTicks();
-    deltaTimeTimer = nowTimeTimer - prevTimeTimer;
-    if(deltaTimeTimer >= 1000 / TIMER_FREQ) {
+    while( timerCounter >= MS_PER_TIMER_DECREMENT ) {
       if(chip8.soundTimer > 0) chip8.soundTimer--;
       if(chip8.delayTimer > 0) chip8.delayTimer--;
-      prevTimeTimer = nowTimeTimer;
+      timerCounter -= MS_PER_TIMER_DECREMENT;
     }
 
+    if( renderCounter >= MS_PER_RENDER_PASS ) {
+      SDL_UpdateTexture(context.ptexture, NULL, chip8.screenPixels, sizeof(chip8.screenPixels[0]) * LOGICAL_WIDTH);
+      SDL_RenderClear(context.prenderer);
+      SDL_RenderTexture(context.prenderer, context.ptexture, NULL, NULL);
+      SDL_RenderPresent(context.prenderer);
+      renderCounter = SDL_fmod(renderCounter, MS_PER_RENDER_PASS);
+    }
+
+    if(chip8.soundTimer > 0) {
+      if(SDL_GetAudioStreamQueued(context.stream) == 0) {
+        SDL_PutAudioStreamData(context.stream, buff, sizeof(buff));
+      }
+    } else {
+      SDL_ClearAudioStream(context.stream);
+    }
+
+    SDL_Delay(1);
   }
 
-  close(&context, &chip8);
+  quitApp(&context, &chip8);
 
   return EXIT_SUCCESS;
 }
 
-static bool setup(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
+static bool startApp(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
+
+  SDL_AudioSpec spec;
 
   if( !SDL_SetAppMetadata("Chip 8 Emulator", "1.0", NULL) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set meta data: %s", SDL_GetError());
     return false;
   }
 
-  if( !SDL_InitSubSystem(SDL_INIT_VIDEO) ) {
+  if( !SDL_InitSubSystem(SDL_INIT_VIDEO |  SDL_INIT_AUDIO ) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failure to init video sub system: %s", SDL_GetError());
     return false;
   }
@@ -168,6 +217,34 @@ static bool initContext(AppContext *restrict pcontext) {
   SDL_SetTextureScaleMode(pcontext->ptexture, SDL_SCALEMODE_NEAREST);
   if( !SDL_SetRenderLogicalPresentation(pcontext->prenderer, LOGICAL_WIDTH, LOGICAL_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set logical representation to letterbox: %s", SDL_GetError());
+    return false;
+  }
+
+  pcontext->deviceID = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, NULL);
+  if( pcontext->deviceID == 0 ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to open audio device: %s", SDL_GetError());
+    return false;
+  }
+
+  SDL_GetAudioDeviceFormat(pcontext->deviceID, &(pcontext->inputSpec), NULL);
+
+  pcontext->inputSpec.format = SDL_AUDIO_F32;
+  pcontext->inputSpec.channels = 1;
+  pcontext->inputSpec.freq = SAMPLE_PER_S;
+
+  pcontext->stream = SDL_CreateAudioStream(&(pcontext->inputSpec), NULL);
+  if( pcontext->stream == NULL ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to create audio stream: %s", SDL_GetError());
+    return false;
+  }
+
+  if( !SDL_BindAudioStream(pcontext->deviceID, pcontext->stream) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to bind audio stream to device: %s", SDL_GetError());
+    return false;
+  }
+
+  if( !SDL_ResumeAudioStreamDevice(pcontext->stream) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to resume audio stream device: %s", SDL_GetError());
     return false;
   }
 
@@ -534,7 +611,7 @@ static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restric
 
 }
 
-static void close(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
+static void quitApp(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
 
   SDL_DestroyTexture(pcontext->ptexture);
   pcontext->ptexture = NULL;
