@@ -22,25 +22,20 @@
   // Timers, Rendering, and Instruction execution
     // We want the timer to decrement 60 times a second per the Chip8 specification
     #define TIMER_FREQ_S 60.0f
-    // This allows for specifying how often the screen is redrawn
-    #define RENDER_FREQ_S 60.0f
     // This allows for specifying how fast we want the Chip8 ROM to run
-    #define INSTRUCTION_FREQ_S 500.0f
+    #define INSTRUCTION_FREQ_S 700.0f
 
     #define MS_PER_TIMER_DECREMENT (1000.0 / TIMER_FREQ_S)
-    #define MS_PER_RENDER_PASS (1000.0 / RENDER_FREQ_S)
     #define MS_PER_INSTRUCTION_EXECUTE (1000.0 / INSTRUCTION_FREQ_S)
 
 // Defining the square wave that will play when the sound timer is non-zero
-#define WAVE_AMPLITUDE 0.1f  
+#define WAVE_AMPLITUDE 0.01f  
 #define WAVE_CYCLE_PER_S 110.0f
 #define SAMPLE_PER_S 44100.0f
 #define SOUND_LENGTH_S 0.5f
 
-#define CYCLES_PER_
-
 // Allows specifying the rom file that will be loaded
-#define ROM_FILE "test-roms/6-keypad.ch8"
+#define ROM_FILE "roms/PONG"
 
 typedef struct Chip8 {
 
@@ -74,22 +69,60 @@ typedef struct AppContext {
   bool quit;
 } AppContext;
 
-static bool startApp(AppContext *restrict pcontext, Chip8 *restrict pchip8);
+typedef struct AppState {
+  AppContext *pcontext;
+  Chip8 *pchip8;
+} AppState;
+
+typedef bool (*FamilyFuncion)(AppState *restrict pstate, uint16_t opcode);
+
+static bool startApp(AppState *restrict pstate);
+static void quitApp(AppState *restrict pstate);
 
 static bool initContext(AppContext *restrict pcontext);
-static bool initChip8(Chip8 *restrict pchip8);
+static bool initChip8(Chip8 *restrict pchip8, const char *restrict romToLoad);
 
 static void handleSDLEvents(AppContext *restrict pcontext);
-
+static bool renderScreen(AppState *restrict pstate);
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath);
-static void opcodeDXYN(Chip8 *restrict pchip8, uint16_t opcode);
-static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode);
-static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode);
-static void opcodeFX0A(Chip8 *restrict pchip8, uint16_t opcode);
 
-static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8);
+static bool exeIntrucFamily0(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily1(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily2(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily3(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily4(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily5(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily6(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily7(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily8(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamily9(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamilyA(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamilyB(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamilyC(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamilyD(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamilyE(AppState *restrict pstate, uint16_t opcode);
+static bool exeIntrucFamilyF(AppState *restrict pstate, uint16_t opcode);
 
-static void quitApp(AppContext *restrict pcontext, Chip8 *restrict pchip8);
+static bool executeNextInstruction(AppState *restrict pstate);
+
+FamilyFuncion familyFunctions[0x10] = {
+  exeIntrucFamily0,
+  exeIntrucFamily1,
+  exeIntrucFamily2,
+  exeIntrucFamily3,
+  exeIntrucFamily4,
+  exeIntrucFamily5,
+  exeIntrucFamily6,
+  exeIntrucFamily7,
+  exeIntrucFamily8,
+  exeIntrucFamily9,
+  exeIntrucFamilyA,
+  exeIntrucFamilyB,
+  exeIntrucFamilyC,
+  exeIntrucFamilyD,
+  exeIntrucFamilyE,
+  exeIntrucFamilyF
+};
 
 int main(int argc, char *argv[]) {
 
@@ -110,9 +143,10 @@ int main(int argc, char *argv[]) {
 
   AppContext context = { 0 };
   Chip8 chip8 = { 0 };
+  AppState state = { &context, &chip8 };
 
-  if( !startApp(&context, &chip8) ) {
-    quitApp(&context, &chip8);
+  if( !startApp(&state) ) {
+    quitApp(&state);
     return EXIT_FAILURE;
   }
 
@@ -137,7 +171,7 @@ int main(int argc, char *argv[]) {
     renderCounter += deltaTime;
 
     while( instructionCounter >= MS_PER_INSTRUCTION_EXECUTE) {
-      executeNextInstruction(&context, &chip8);
+      executeNextInstruction(&state);
       instructionCounter -= MS_PER_INSTRUCTION_EXECUTE;
     }
 
@@ -147,14 +181,6 @@ int main(int argc, char *argv[]) {
       timerCounter -= MS_PER_TIMER_DECREMENT;
     }
 
-    if( renderCounter >= MS_PER_RENDER_PASS ) {
-      SDL_UpdateTexture(context.ptexture, NULL, chip8.screenPixels, sizeof(chip8.screenPixels[0]) * LOGICAL_WIDTH);
-      SDL_RenderClear(context.prenderer);
-      SDL_RenderTexture(context.prenderer, context.ptexture, NULL, NULL);
-      SDL_RenderPresent(context.prenderer);
-      renderCounter = SDL_fmod(renderCounter, MS_PER_RENDER_PASS);
-    }
-
     if(chip8.soundTimer > 0) {
       if(SDL_GetAudioStreamQueued(context.stream) == 0) {
         SDL_PutAudioStreamData(context.stream, buff, sizeof(buff));
@@ -162,18 +188,15 @@ int main(int argc, char *argv[]) {
     } else {
       SDL_ClearAudioStream(context.stream);
     }
-
     SDL_Delay(1);
   }
 
-  quitApp(&context, &chip8);
+  quitApp(&state);
 
   return EXIT_SUCCESS;
 }
 
-static bool startApp(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
-
-  SDL_AudioSpec spec;
+static bool startApp(AppState *restrict pstate) {
 
   if( !SDL_SetAppMetadata("Chip 8 Emulator", "1.0", NULL) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to set meta data: %s", SDL_GetError());
@@ -185,15 +208,30 @@ static bool startApp(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
     return false;
   }
 
-  if( !initContext(pcontext) ) {
+  if( !initContext(pstate->pcontext) ) {
     return false;
   }
 
-  if( !initChip8(pchip8) ) {
+  if( !initChip8(pstate->pchip8, ROM_FILE) ) {
     return false;
   }
 
   return true;
+
+}
+
+static void quitApp(AppState *restrict pstate) {
+
+  AppContext *restrict pcontext = pstate->pcontext;
+
+  SDL_DestroyTexture(pcontext->ptexture);
+  pcontext->ptexture = NULL;
+  SDL_DestroyRenderer(pcontext->prenderer);
+  pcontext->prenderer = NULL;
+  SDL_DestroyWindow(pcontext->pwindow);
+  pcontext->pwindow = NULL;
+  SDL_DestroyAudioStream(pcontext->stream);
+  pcontext->stream = NULL;
 
 }
 
@@ -226,8 +264,6 @@ static bool initContext(AppContext *restrict pcontext) {
     return false;
   }
 
-  SDL_GetAudioDeviceFormat(pcontext->deviceID, &(pcontext->inputSpec), NULL);
-
   pcontext->inputSpec.format = SDL_AUDIO_F32;
   pcontext->inputSpec.channels = 1;
   pcontext->inputSpec.freq = SAMPLE_PER_S;
@@ -252,7 +288,7 @@ static bool initContext(AppContext *restrict pcontext) {
 
 }
 
-static bool initChip8(Chip8 *restrict pchip8) {
+static bool initChip8(Chip8 *restrict pchip8, const char *restrict romToLoad) {
 
   pchip8->programCounter = PROGRAM_START;
 
@@ -300,7 +336,7 @@ static bool initChip8(Chip8 *restrict pchip8) {
   pchip8->keypad[0xE] = &(sdlKeys[SDL_SCANCODE_F]);
   pchip8->keypad[0xF] = &(sdlKeys[SDL_SCANCODE_V]);
 
-  if( !loadROM(pchip8, ROM_FILE) ) return false;
+  if( !loadROM(pchip8, romToLoad) ) return false;
 
   return true;
 
@@ -325,6 +361,34 @@ static void handleSDLEvents(AppContext *restrict pcontext) {
   }
 }
 
+static bool renderScreen(AppState *restrict pstate) {
+
+  AppContext *restrict pcontext = pstate->pcontext;
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  if( !SDL_UpdateTexture(pcontext->ptexture, NULL, pchip8->screenPixels, sizeof(pchip8->screenPixels[0]) * LOGICAL_WIDTH) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to update texture: %s", SDL_GetError());
+    return false;
+  }
+
+  if( !SDL_RenderClear(pcontext->prenderer) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to render clear: %s", SDL_GetError());
+    return false;
+  }
+
+  if( !SDL_RenderTexture(pcontext->prenderer, pcontext->ptexture, NULL, NULL) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to render texture: %s", SDL_GetError());
+    return false;
+  }
+
+  if( !SDL_RenderPresent(pcontext->prenderer) ) {
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Unable to render present: %s", SDL_GetError());
+    return false;
+  }
+
+  return true;
+
+}
 static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
 
   FILE *pROM = fopen(pfilePath, "rb");
@@ -349,45 +413,138 @@ static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
   return true;
 
 }
+static bool executeNextInstruction(AppState *restrict pstate) {
 
-static void opcodeDXYN(Chip8 *restrict pchip8, uint16_t opcode) {
+  Chip8 *restrict pchip8 = pstate->pchip8;
 
-  pchip8->generalRegisters[0xF] = 0x0;
+  uint16_t opcode = 0x0;
+  opcode |= pchip8->memory[pchip8->programCounter] << 0x8;
+  pchip8->programCounter++;
+  opcode |= pchip8->memory[pchip8->programCounter];
+  pchip8->programCounter++;
 
-  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  uint8_t Vy = (opcode & 0x00F0) >> 0x4;
-  uint8_t n = opcode & 0x000F;
+  const uint8_t family = (opcode & 0xF000) >> 0xC;
 
-  uint8_t xPos = pchip8->generalRegisters[Vx] % LOGICAL_WIDTH;
-  uint8_t yPos = pchip8->generalRegisters[Vy] % LOGICAL_HEIGHT;
-
-  for(uint row = 0; row < n; row++) {
-
-    uint8_t spriteByte = pchip8->memory[pchip8->addressRegister + row];
-
-    for(uint column = 0; column < 8; column++) {
-
-      uint8_t spritePixel = spriteByte & ( 0x80u >> column );
-
-      if(spritePixel > 0) {
-
-        if(pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] > 0) {
-          pchip8->generalRegisters[0xF] = 1;
-        }
-        
-        pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] ^= 0xFFFFFFFF;
-      }
-
-    }
-  }
+  return familyFunctions[family](pstate, opcode);
 
 }
 
-static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode) {
+static bool exeIntrucFamily0(AppState *restrict pstate, uint16_t opcode) {
 
-  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  uint8_t Vy = (opcode & 0x00F0) >> 0x4;
-  uint8_t type = opcode & 0x000F;
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  switch(opcode) {
+    case 0xE0:
+      memset(pchip8->screenPixels, 0, sizeof((pchip8->screenPixels)));
+      renderScreen(pstate);
+      break;
+    case 0xEE:
+      if( pchip8->stackPointer != 0) {
+        pchip8->stackPointer--;
+        pchip8->programCounter = pchip8->stack[pchip8->stackPointer];
+      }
+      break;
+    default:
+      return false;
+      break;
+  }
+
+  return true;
+
+}
+static bool exeIntrucFamily1(AppState *restrict pstate, uint16_t opcode) {
+
+  const uint16_t NNN = opcode & 0x0FFF;
+
+  pstate->pchip8->programCounter = NNN;
+
+  return true;
+
+}
+static bool exeIntrucFamily2(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint16_t NNN = opcode & 0x0FFF;
+
+  if( pchip8->stackPointer < 16) {
+    pchip8->stack[pchip8->stackPointer] = pchip8->programCounter;
+    pchip8->stackPointer++;
+    pchip8->programCounter = NNN;
+  } else {
+    return false;
+  }
+
+  return true;
+
+}
+static bool exeIntrucFamily3(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t NN = (opcode & 0x00FF);
+
+  if( pchip8->generalRegisters[Vx] == NN ) pchip8->programCounter += 2;
+
+  return true;
+
+}
+static bool exeIntrucFamily4(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t NN = opcode & 0x00FF;
+
+  if( pchip8->generalRegisters[Vx] != NN ) pchip8->programCounter += 2;
+
+  return true;
+
+}
+static bool exeIntrucFamily5(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+
+  if( pchip8->generalRegisters[Vx] == pchip8->generalRegisters[Vy] ) pchip8->programCounter += 2;
+  
+  return true;
+
+}
+static bool exeIntrucFamily6(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t NN = opcode & 0x00FF;
+
+  pchip8->generalRegisters[Vx] = NN;
+
+  return true;
+
+}
+static bool exeIntrucFamily7(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t NN = opcode & 0x00FF;
+
+  pchip8->generalRegisters[Vx] += NN;
+
+  return true;
+
+}
+static bool exeIntrucFamily8(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+  const uint8_t type = opcode & 0x000F;
 
   uint8_t prevValue;
 
@@ -432,25 +589,147 @@ static void opcode8XYN(Chip8 *restrict pchip8, uint16_t opcode) {
       reg[0xF] = prevValue;
       break;
     default:
-      exit(EXIT_FAILURE);
+      return false;
       break;
   }
 
-}
+  return true;
 
-static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
+}
+static bool exeIntrucFamily9(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+
+  if( pchip8->generalRegisters[Vx] != pchip8->generalRegisters[Vy] ) pchip8->programCounter += 2;
+
+  return true;
+
+}
+static bool exeIntrucFamilyA(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint16_t NNN = opcode & 0x0FFF;
+
+  pchip8->addressRegister = NNN;
+
+  return true;
+
+}
+static bool exeIntrucFamilyB(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint16_t NNN = opcode & 0x0FFF;
+
+  pchip8->programCounter = NNN + pchip8->generalRegisters[0];
+
+  return true;
+
+}
+static bool exeIntrucFamilyC(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t NN = opcode & 0x00FF;
+
+  pchip8->generalRegisters[Vx] = (rand() % 256) & NN;
+
+  return true;
+
+}
+static bool exeIntrucFamilyD(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  pchip8->generalRegisters[0xF] = 0x0;
+
+  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+  uint8_t n = opcode & 0x000F;
+
+  uint8_t xPos = pchip8->generalRegisters[Vx] % LOGICAL_WIDTH;
+  uint8_t yPos = pchip8->generalRegisters[Vy] % LOGICAL_HEIGHT;
+
+  for(uint row = 0; row < n; row++) {
+
+    uint8_t spriteByte = pchip8->memory[pchip8->addressRegister + row];
+
+    for(uint column = 0; column < 8; column++) {
+
+      uint8_t spritePixel = spriteByte & ( 0x80u >> column );
+
+      if(spritePixel > 0) {
+
+        if(pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] > 0) {
+          pchip8->generalRegisters[0xF] = 1;
+        }
+        
+        pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] ^= 0xFFFFFFFF;
+      }
+
+    }
+  }
+
+  renderScreen(pstate);
+
+  return true;
+}
+static bool exeIntrucFamilyE(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
+
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+
+  switch(opcode & 0x00FF) {
+    case 0x9E:
+      if(*(pchip8->keypad[ pchip8->generalRegisters[Vx] & 0xF])) pchip8->programCounter += 2;
+      break;
+    case 0xA1:
+      if(!(*(pchip8->keypad[ pchip8->generalRegisters[Vx] & 0xF]))) pchip8->programCounter += 2;
+      break;
+    default:
+      return false;
+      break;
+  }
+
+  return true;
+}
+static bool exeIntrucFamilyF(AppState *restrict pstate, uint16_t opcode) {
+
+  Chip8 *restrict pchip8 = pstate->pchip8;
 
   uint16_t address;
 
-  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  uint8_t type = opcode & 0x00FF;
+  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t type = opcode & 0x00FF;
 
   switch(type) {
     case 0x07:
       pchip8->generalRegisters[Vx] = pchip8->delayTimer;
       break;
     case 0x0A:
-      opcodeFX0A(pchip8, opcode);
+      if(pchip8->keyIsPressed) {
+        if(*(pchip8->keypad[pchip8->pressedKey])) {
+          pchip8->programCounter -= 2;
+        } else {
+          pchip8->keyIsPressed = false;
+          pchip8->generalRegisters[Vx] = pchip8->pressedKey;
+        }
+      } else {
+        for(uint i = 0; i <= 0xf; i++) {
+          if(*(pchip8->keypad[i])) {
+            pchip8->keyIsPressed = true;
+            pchip8->pressedKey = i;
+            break;
+          }
+        }
+        pchip8->programCounter -= 2;
+      }
       break;
     case 0x15:
       pchip8->soundTimer = pchip8->generalRegisters[Vx];
@@ -480,145 +759,10 @@ static void opcodeFXNN(Chip8 *restrict pchip8, uint16_t opcode){
       }
       break;
     default:
-      exit(EXIT_FAILURE);
-      break;
-  }
-
-}
-
-static void opcodeFX0A(Chip8 *restrict pchip8, uint16_t opcode) {
-
-  uint8_t Vx = (opcode & 0x0F00) >> 8;
-
-  if(pchip8->keyIsPressed) {
-    if(*(pchip8->keypad[pchip8->pressedKey])) {
-      pchip8->programCounter -= 2;
-    } else {
-      pchip8->keyIsPressed = false;
-      pchip8->generalRegisters[Vx] = pchip8->pressedKey;
-    }
-  } else {
-    for(uint i = 0; i <= 0xf; i++) {
-      if(*(pchip8->keypad[i])) {
-        pchip8->keyIsPressed = true;
-        pchip8->pressedKey = i;
-        break;
-      }
-    }
-    pchip8->programCounter -= 2;
-  }
-
-}
-
-static bool executeNextInstruction(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
-
-  uint16_t opcode = 0x0;
-  uint16_t prevCode = 0x0;
-  opcode |= pchip8->memory[pchip8->programCounter] << 0x8;
-  pchip8->programCounter++;
-  opcode |= pchip8->memory[pchip8->programCounter];
-  pchip8->programCounter++;
-
-  // if( prevCode != opcode ) SDL_Log("%04x", opcode);
-  // uint16_t precode = opcode;
-
-  uint8_t firstNybble = (opcode & 0xF000) >> 0xC;
-
-  switch(firstNybble) {
-    case 0x0:
-
-      switch(opcode) {
-        case 0xE0:
-          memset(pchip8->screenPixels, 0, sizeof((pchip8->screenPixels)));
-          break;
-        case 0xEE:
-          if( pchip8->stackPointer != 0) {
-            pchip8->stackPointer--;
-            pchip8->programCounter = pchip8->stack[pchip8->stackPointer];
-          }
-          break;
-        default:
-          break;
-      }
-
-      break;
-    case 0x1:
-      pchip8->programCounter = opcode & 0x0FFF;
-      break;
-    case 0x2:
-      if( pchip8->stackPointer < 16) {
-        pchip8->stack[pchip8->stackPointer] = pchip8->programCounter;
-        pchip8->stackPointer++;
-        pchip8->programCounter = opcode & 0x0FFF;
-      } 
-      break;
-    case 0x3:
-      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] == (uint8_t)(opcode & 0x00FF) ) pchip8->programCounter += 2;
-      break;
-    case 0x4:
-      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] != (uint8_t)(opcode & 0x00FF) ) pchip8->programCounter += 2;
-      break;
-    case 0x5:
-      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] == pchip8->generalRegisters[(opcode & 0x00F0) >> 0x4] ) pchip8->programCounter += 2;
-      break;
-    case 0x6:
-      pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] = opcode & 0x00FF;
-      break;
-    case 0x7:
-      pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] += opcode & 0x00FF;
-      break;
-    case 0x8:
-      opcode8XYN(pchip8, opcode);
-      break;
-    case 0x9:
-      if( pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] != pchip8->generalRegisters[(opcode & 0x00F0) >> 0x4] ) pchip8->programCounter += 2;
-      break;
-    case 0xA:
-      pchip8->addressRegister = opcode & 0x0FFF;
-      break;
-    case 0xB:
-      pchip8->programCounter = (opcode & 0x0FFF) + pchip8->generalRegisters[0];
-      break;
-    case 0xC:
-      pchip8->generalRegisters[ (opcode & 0x0F00) >> 0x8 ] = (rand() % 256) & (opcode & 0x00FF);
-      break;
-    case 0xD:
-      opcodeDXYN(pchip8, opcode);
-      break;
-    case 0xE:
-
-      switch(opcode & 0x00FF) {
-        case 0x9E:
-          if(*(pchip8->keypad[ pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] & 0xF])) pchip8->programCounter += 2;
-          break;
-        case 0xA1:
-          if(!(*(pchip8->keypad[ pchip8->generalRegisters[(opcode & 0x0F00) >> 0x8] & 0xF]))) pchip8->programCounter += 2;
-          break;
-        default:
-          break;
-      }
-
-      break;
-    case 0xF:
-      opcodeFXNN(pchip8, opcode);
-      break;
-    default:
-      exit(EXIT_FAILURE);
+      return false;
       break;
   }
 
   return true;
 
 }
-
-static void quitApp(AppContext *restrict pcontext, Chip8 *restrict pchip8) {
-
-  SDL_DestroyTexture(pcontext->ptexture);
-  pcontext->ptexture = NULL;
-  SDL_DestroyRenderer(pcontext->prenderer);
-  pcontext->prenderer = NULL;
-  SDL_DestroyWindow(pcontext->pwindow);
-  pcontext->pwindow = NULL;
-
-}
-
