@@ -5,8 +5,9 @@ A Chip8 interpreter and emulator written in C using SDL3
 
 
 # Tests and Validations
+[Chip-8 Test Suite by Timendus](https://github.com/Timendus/chip8-test-suite)
 <details>
-    <summary> [Chip-8 Test Suite by Timendus](https://github.com/Timendus/chip8-test-suite) </summary>
+    <summary> Click to show </summary>
 
 1. ✅ [1-chip8-logo.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/1-chip8-logo.ch8)
 2. ✅ [2-ibm-logo.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/2-ibm-logo.ch8)
