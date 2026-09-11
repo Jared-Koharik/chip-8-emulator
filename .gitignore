@@ -56,3 +56,5 @@ dkms.conf
 
 # directories
 build/
+test-roms/
+roms/

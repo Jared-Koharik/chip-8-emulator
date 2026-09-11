@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <getopt.h>
+#include <string.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
@@ -34,8 +36,16 @@
 #define SAMPLE_PER_S 44100.0f
 #define SOUND_LENGTH_S 0.5f
 
-// Allows specifying the rom file that will be loaded
-#define ROM_FILE "roms/PONG"
+#ifndef CLASSIC
+#define MODERN
+#endif
+
+#define GET_BIT(byte, bit) (byte & ( 0x80u >> bit ))
+#define GET_VX(opcode) ((opcode & 0x0F00) >> 0x8)
+#define GET_VY(opcode) ((opcode & 0x00F0) >> 0x4)
+#define GET_N(opcode) (opcode & 0x000F)
+#define GET_NN(opcode) (opcode & 0x00FF)
+#define GET_NNN(opcode) (opcode & 0x0FFF)
 
 typedef struct Chip8 {
 
@@ -56,6 +66,8 @@ typedef struct Chip8 {
   const bool * keypad[16];
   bool keyIsPressed;
 
+  bool isClassic;
+
 } Chip8;
 
 typedef struct AppContext {
@@ -72,9 +84,10 @@ typedef struct AppContext {
 typedef struct AppState {
   AppContext *pcontext;
   Chip8 *pchip8;
+  const char *restrict romFile;
 } AppState;
 
-typedef bool (*FamilyFuncion)(AppState *restrict pstate, uint16_t opcode);
+typedef bool (*FamilyFunction)(AppState *restrict pstate, uint16_t opcode);
 
 static bool startApp(AppState *restrict pstate);
 static void quitApp(AppState *restrict pstate);
@@ -105,7 +118,7 @@ static bool exeIntrucFamilyF(AppState *restrict pstate, uint16_t opcode);
 
 static bool executeNextInstruction(AppState *restrict pstate);
 
-FamilyFuncion familyFunctions[0x10] = {
+FamilyFunction familyFunctions[0x10] = {
   exeIntrucFamily0,
   exeIntrucFamily1,
   exeIntrucFamily2,
@@ -126,6 +139,22 @@ FamilyFuncion familyFunctions[0x10] = {
 
 int main(int argc, char *argv[]) {
 
+  if(argc != 3) {
+    SDL_LogError(SDL_SCANCODE_APPLICATION, "Usage: %s { -c | -m } <rom-file-path>", argv[0]);
+    return EXIT_FAILURE;
+  }
+
+  bool isClassic;
+
+  if( strcmp(argv[1], "-c") == 0) {
+    isClassic = true;
+  } else if ( strcmp(argv[1], "-m") == 0) {
+    isClassic = false;
+  } else {
+    SDL_LogError(SDL_SCANCODE_APPLICATION, "Usage: %s { -c | -m } <rom-file-path>", argv[0]);
+    return EXIT_FAILURE;
+  }
+
   double instructionCounter = 0.0;
   double timerCounter = 0.0;
   double renderCounter = 0.0;
@@ -139,11 +168,11 @@ int main(int argc, char *argv[]) {
 
   float buff[numSamples];
 
-  Uint64 nowTime, prevTime, deltaTime = 0;
+  Uint64 nowTime, prevTime = 0;
 
   AppContext context = { 0 };
-  Chip8 chip8 = { 0 };
-  AppState state = { &context, &chip8 };
+  Chip8 chip8 = { .isClassic = isClassic };
+  AppState state = { &context, &chip8, argv[2]};
 
   if( !startApp(&state) ) {
     quitApp(&state);
@@ -163,12 +192,10 @@ int main(int argc, char *argv[]) {
     handleSDLEvents(&context);
 
     nowTime = SDL_GetTicks();
-    double deltaTime = (double)(nowTime - prevTime);
+    instructionCounter += (double)(nowTime - prevTime);
+    timerCounter += (double)(nowTime - prevTime);
+    renderCounter += (double)(nowTime - prevTime);
     prevTime = nowTime;
-
-    instructionCounter += deltaTime;
-    timerCounter += deltaTime;
-    renderCounter += deltaTime;
 
     while( instructionCounter >= MS_PER_INSTRUCTION_EXECUTE) {
       executeNextInstruction(&state);
@@ -212,7 +239,7 @@ static bool startApp(AppState *restrict pstate) {
     return false;
   }
 
-  if( !initChip8(pstate->pchip8, ROM_FILE) ) {
+  if( !initChip8(pstate->pchip8, pstate->romFile) ) {
     return false;
   }
 
@@ -454,7 +481,7 @@ static bool exeIntrucFamily0(AppState *restrict pstate, uint16_t opcode) {
 }
 static bool exeIntrucFamily1(AppState *restrict pstate, uint16_t opcode) {
 
-  const uint16_t NNN = opcode & 0x0FFF;
+  const uint16_t NNN = GET_NNN(opcode);
 
   pstate->pchip8->programCounter = NNN;
 
@@ -465,7 +492,7 @@ static bool exeIntrucFamily2(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint16_t NNN = opcode & 0x0FFF;
+  const uint16_t NNN = GET_NNN(opcode);
 
   if( pchip8->stackPointer < 16) {
     pchip8->stack[pchip8->stackPointer] = pchip8->programCounter;
@@ -482,8 +509,8 @@ static bool exeIntrucFamily3(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t NN = (opcode & 0x00FF);
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t NN = GET_NN(opcode);
 
   if( pchip8->generalRegisters[Vx] == NN ) pchip8->programCounter += 2;
 
@@ -494,8 +521,8 @@ static bool exeIntrucFamily4(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t NN = opcode & 0x00FF;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t NN = GET_NN(opcode);
 
   if( pchip8->generalRegisters[Vx] != NN ) pchip8->programCounter += 2;
 
@@ -506,8 +533,8 @@ static bool exeIntrucFamily5(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t Vy = GET_VY(opcode);
 
   if( pchip8->generalRegisters[Vx] == pchip8->generalRegisters[Vy] ) pchip8->programCounter += 2;
   
@@ -518,8 +545,8 @@ static bool exeIntrucFamily6(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t NN = opcode & 0x00FF;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t NN = GET_NN(opcode);
 
   pchip8->generalRegisters[Vx] = NN;
 
@@ -530,8 +557,8 @@ static bool exeIntrucFamily7(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t NN = opcode & 0x00FF;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t NN = GET_NN(opcode);
 
   pchip8->generalRegisters[Vx] += NN;
 
@@ -542,25 +569,28 @@ static bool exeIntrucFamily8(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t Vy = (opcode & 0x00F0) >> 0x4;
-  const uint8_t type = opcode & 0x000F;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t Vy = GET_VY(opcode);
+  const uint8_t N = GET_N(opcode);
 
   uint8_t prevValue;
 
   uint8_t *reg = pchip8->generalRegisters;
 
-  switch(type) {
+  switch(N) {
     case 0x0:
       reg[Vx] = reg[Vy];
       break;
-    case 0x1:
+    case 0x1: // Ambiguous
+      if(pchip8->isClassic) reg[0xF] = 0;
       reg[Vx] |= reg[Vy];
       break;
-    case 0x2:
+    case 0x2: // Ambiguous
+      if(pchip8->isClassic) reg[0xF] = 0;
       reg[Vx] &= reg[Vy];
       break;
-    case 0x3:
+    case 0x3: // Ambiguous
+      if(pchip8->isClassic) reg[0xF] = 0;
       reg[Vx] ^= reg[Vy];
       break;
     case 0x4:
@@ -573,7 +603,8 @@ static bool exeIntrucFamily8(AppState *restrict pstate, uint16_t opcode) {
       reg[Vx] -= reg[Vy];
       reg[0xF] = reg[Vx] < prevValue;
       break;
-    case 0x6:
+    case 0x6: // Ambiguous
+      if(pchip8->isClassic) reg[Vx] = reg[Vy];
       prevValue = reg[Vx] & 0x1;
       reg[Vx] >>= 1;
       reg[0xF] = prevValue;
@@ -583,7 +614,8 @@ static bool exeIntrucFamily8(AppState *restrict pstate, uint16_t opcode) {
       reg[Vx] = reg[Vy] - reg[Vx];
       reg[0xF] = reg[Vx] <= prevValue;
       break;
-    case 0xE:
+    case 0xE: // Ambiguous
+      if(pchip8->isClassic) reg[Vx] = reg[Vy];
       prevValue = (reg[Vx] & 0x80) >> 0x7;
       reg[Vx] <<= 1;
       reg[0xF] = prevValue;
@@ -600,8 +632,8 @@ static bool exeIntrucFamily9(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t Vy = (opcode & 0x00F0) >> 0x4;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t Vy = GET_VY(opcode);
 
   if( pchip8->generalRegisters[Vx] != pchip8->generalRegisters[Vy] ) pchip8->programCounter += 2;
 
@@ -612,7 +644,7 @@ static bool exeIntrucFamilyA(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint16_t NNN = opcode & 0x0FFF;
+  const uint16_t NNN = GET_NNN(opcode);
 
   pchip8->addressRegister = NNN;
 
@@ -621,9 +653,12 @@ static bool exeIntrucFamilyA(AppState *restrict pstate, uint16_t opcode) {
 }
 static bool exeIntrucFamilyB(AppState *restrict pstate, uint16_t opcode) {
 
+  // Is an ambiguous instruction, but according to Tvil it is most likely fine to leave it like this:
+  //   https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#bnnn-jump-with-offset
+
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint16_t NNN = opcode & 0x0FFF;
+  const uint16_t NNN = GET_NNN(opcode);
 
   pchip8->programCounter = NNN + pchip8->generalRegisters[0];
 
@@ -634,8 +669,8 @@ static bool exeIntrucFamilyC(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t NN = opcode & 0x00FF;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t NN = GET_NN(opcode);
 
   pchip8->generalRegisters[Vx] = (rand() % 256) & NN;
 
@@ -644,33 +679,56 @@ static bool exeIntrucFamilyC(AppState *restrict pstate, uint16_t opcode) {
 }
 static bool exeIntrucFamilyD(AppState *restrict pstate, uint16_t opcode) {
 
+  // When drawing sprites, the initial drawing location should wrap around the screen
+  // While drawing however, the sprites should not wrap
+  // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#dxyn-display
+
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  pchip8->generalRegisters[0xF] = 0x0;
+  uint32_t *restrict pixels = pchip8->screenPixels;
+  uint8_t *restrict reg = pchip8->generalRegisters;
 
-  uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  uint8_t Vy = (opcode & 0x00F0) >> 0x4;
-  uint8_t n = opcode & 0x000F;
+  const uint8_t *restrict mem = pchip8->memory;
 
-  uint8_t xPos = pchip8->generalRegisters[Vx] % LOGICAL_WIDTH;
-  uint8_t yPos = pchip8->generalRegisters[Vy] % LOGICAL_HEIGHT;
+  const uint16_t address = pchip8->addressRegister;
 
-  for(uint row = 0; row < n; row++) {
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t Vy = GET_VY(opcode);
+  const uint8_t N = GET_N(opcode);
 
-    uint8_t spriteByte = pchip8->memory[pchip8->addressRegister + row];
+  const uint8_t xMax = LOGICAL_WIDTH;
+  const uint8_t yMax = LOGICAL_HEIGHT;
+
+  // Initial location is wrapped around the screen using modulo if it goes over either direction
+  const uint8_t xPos = reg[Vx] % xMax;
+  const uint8_t yPos = reg[Vy] % yMax;
+
+  reg[0xF] = 0x0;
+
+  for(uint row = 0; row < N; row++) {
+
+    const uint8_t spriteByte = mem[address + row];
 
     for(uint column = 0; column < 8; column++) {
 
-      uint8_t spritePixel = spriteByte & ( 0x80u >> column );
+      // While drawing, the sprite DOES NOT wrap, this checks for that
+      if((xPos + column) < xMax && (yPos + row) < yMax){
 
-      if(spritePixel > 0) {
+        const uint8_t spritePixel = GET_BIT(spriteByte, column);
 
-        if(pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] > 0) {
-          pchip8->generalRegisters[0xF] = 1;
+        if(spritePixel > 0) {
+
+          const uint16_t pixelIndex = (xPos + column) + LOGICAL_WIDTH * (yPos + row);
+
+          if(pixels[pixelIndex] > 0) {
+            reg[0xF] = 1;
+          }
+
+          pixels[pixelIndex] ^= 0xFFFFFFFF;
+
         }
-        
-        pchip8->screenPixels[((xPos + column) % LOGICAL_WIDTH) + LOGICAL_WIDTH * ((yPos + row) % LOGICAL_HEIGHT)] ^= 0xFFFFFFFF;
-      }
+
+      }      
 
     }
   }
@@ -683,7 +741,7 @@ static bool exeIntrucFamilyE(AppState *restrict pstate, uint16_t opcode) {
 
   Chip8 *restrict pchip8 = pstate->pchip8;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
+  const uint8_t Vx = GET_VX(opcode);
 
   switch(opcode & 0x00FF) {
     case 0x9E:
@@ -705,10 +763,10 @@ static bool exeIntrucFamilyF(AppState *restrict pstate, uint16_t opcode) {
 
   uint16_t address;
 
-  const uint8_t Vx = (opcode & 0x0F00) >> 0x8;
-  const uint8_t type = opcode & 0x00FF;
+  const uint8_t Vx = GET_VX(opcode);
+  const uint8_t NN = GET_NN(opcode);
 
-  switch(type) {
+  switch(NN) {
     case 0x07:
       pchip8->generalRegisters[Vx] = pchip8->delayTimer;
       break;
@@ -752,11 +810,13 @@ static bool exeIntrucFamilyF(AppState *restrict pstate, uint16_t opcode) {
       for(uint i = 0; i <= Vx; i++) {
         pchip8->memory[pchip8->addressRegister + i] = pchip8->generalRegisters[i];
       }
+      if(pchip8->isClassic) pchip8->addressRegister += Vx + 1;
       break;
     case 0x65:
       for(uint i = 0; i <= Vx; i++) {
         pchip8->generalRegisters[i] = pchip8->memory[pchip8->addressRegister + i];
       }
+      if(pchip8->isClassic) pchip8->addressRegister += Vx + 1;
       break;
     default:
       return false;
