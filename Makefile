@@ -20,7 +20,7 @@ buildDebug: src/main.c | debug
 	$(CC) -g -O0 -fsanitize=address src/main.c -o debug/main $(CF)
 
 debug:
-	mkdie -p debug
+	mkdir -p debug
 
 clean:
 	rm -r $(BUILD_PATH)/$(BUILD_NAME)

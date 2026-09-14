@@ -36,10 +36,6 @@
 #define SAMPLE_PER_S 44100.0f
 #define SOUND_LENGTH_S 0.5f
 
-#ifndef CLASSIC
-#define MODERN
-#endif
-
 #define GET_BIT(byte, bit) (byte & ( 0x80u >> bit ))
 #define GET_VX(opcode) ((opcode & 0x0F00) >> 0x8)
 #define GET_VY(opcode) ((opcode & 0x00F0) >> 0x4)
@@ -430,9 +426,9 @@ static bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
     fclose(pROM);
     return false;
   } else if (feof(pROM)) {
-    SDL_Log("Succesful full read from file: %s\n Read count: %lu", pfilePath, numRead);
+    SDL_Log("Succesful full read from file: %s\nRead count: %lu", pfilePath, numRead);
   } else {
-    SDL_Log("Succesful partial read from file: %s\n Read count: %lu", pfilePath, numRead);
+    SDL_Log("Succesful partial read from file: %s\nRead count: %lu", pfilePath, numRead);
   }
 
   fclose(pROM);
