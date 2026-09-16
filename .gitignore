@@ -58,3 +58,7 @@ dkms.conf
 build/
 test-roms/
 roms/
+debug/
+object/
+
+compile_commands.json

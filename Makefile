@@ -1,26 +1,36 @@
 CC := gcc
-CF := `pkg-config --cflags --libs sdl3`
+CF := -Wall -Wextra
+CI := $(shell pkg-config --cflags sdl3)
+CL := $(shell pkg-config --libs sdl3)
 
-BUILD_NAME := main
-BUILD_PATH := build
+OBJ := object/main.o object/chip8.o
 
-all: src/main.c | build
-	$(CC) src/main.c -o $(BUILD_PATH)/$(BUILD_NAME) $(CF)
+.PHONY: all run debug clean
 
-$(BUILD_PATH)/$(BUILD_NAME):
-	$(MAKE) all
+all: build/main
 
-build:
-	mkdir -p build
+build/main: $(OBJ) | build/
+	$(CC) $(CF) $(OBJ) -o build/main $(CL)
 
-run: $(BUILD_PATH)/$(BUILD_NAME)
-	./$(BUILD_PATH)/$(BUILD_NAME)
+object/%.o: src/%.c | object/
+	$(CC) $(CF) -MMD -MP -c $< -o $@ -Iinclude $(CI)
 
-buildDebug: src/main.c | debug
-	$(CC) -g -O0 -fsanitize=address src/main.c -o debug/main $(CF)
+-include $(OBJ:.o=.d)
 
-debug:
-	mkdir -p debug
+debug: $(OBJ) | debugbuild/
+	$(CC) -g -O0 -fsanitize=address $(CF) $(OBJ) -o debugbuild/main $(CL)
+
+run: build/main
+	./build/main $(ARGS)
 
 clean:
-	rm -r $(BUILD_PATH)/$(BUILD_NAME)
+	rm -rf build/ debugbuild/ object/
+
+build/:
+	mkdir -p build/
+
+object/:
+	mkdir -p object/
+
+debugbuild/:
+	mkdir -p debugbuild/
