@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 // Defining values of different parts of memory in the Chip8
 // The Chip8 system has a total of 4096 bytes of memory with some reserved sections
@@ -412,6 +413,8 @@ bool initChip8(Chip8 *restrict pchip8, bool isClassic, const char *restrict romT
   }
 
   if( !loadROM(pchip8, romToLoad) ) return false;
+
+  srand(time(NULL));
 
   return true;
 
