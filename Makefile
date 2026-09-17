@@ -3,7 +3,7 @@ CF := -Wall -Wextra
 CI := $(shell pkg-config --cflags sdl3)
 CL := $(shell pkg-config --libs sdl3)
 
-OBJ := object/main.o object/chip8.o
+OBJ := object/main.o object/chip8.o object/video.o object/audio.o object/input.o
 
 .PHONY: all run debug clean
 

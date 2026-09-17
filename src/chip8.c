@@ -4,37 +4,16 @@
 #include <stdio.h>
 #include <string.h>
 
-// Defining the dimensions of the Chip8 screen
-#define LOGICAL_WIDTH 64
-#define LOGICAL_HEIGHT 32
-
 // Defining values of different parts of memory in the Chip8
-  // The Chip8 system has a total of 4096 bytes of memory with some reserved sections
-  #define MEMORY_SIZE 4096
-  #define RESERVED_MEMORY_FOR_INTERPRETER 512
-  #define RESERVED_MEMORY_FOR_INTERNAL 96
-  #define RESERVED_MEMORY_FOR_REFRESH 256
-  #define AVAILABLE_MEMORY (MEMORY_SIZE - RESERVED_MEMORY_FOR_INTERPRETER - RESERVED_MEMORY_FOR_INTERNAL - RESERVED_MEMORY_FOR_REFRESH)
-  #define CHARACTERS_ARRAY_SIZE 80
-  #define FONT_ADDRESS 0x50
-  #define PROGRAM_START_ADDRESS 0x200
-  #define PROGRAM_MAX_ADDRESS 0xE9F
-
-// Defining how many times per second certain actions are taken
-  // Timers, Rendering, and Instruction execution
-    // We want the timer to decrement 60 times a second per the Chip8 specification
-    #define TIMER_FREQ_S 60.0f
-    // This allows for specifying how fast we want the Chip8 ROM to run
-    #define INSTRUCTION_FREQ_S 1000.0f
-
-    #define MS_PER_TIMER_DECREMENT (1000.0 / TIMER_FREQ_S)
-    #define MS_PER_INSTRUCTION_EXECUTE (1000.0 / INSTRUCTION_FREQ_S)
-
-// Defining the square wave that will play when the sound timer is non-zero
-#define WAVE_AMPLITUDE 0.1f
-#define WAVE_CYCLE_PER_S 110
-#define SAMPLE_PER_S 44100
-#define MAX_SOUND_LENGTH_MS 500
+// The Chip8 system has a total of 4096 bytes of memory with some reserved sections
+#define RESERVED_MEMORY_FOR_INTERPRETER 512
+#define RESERVED_MEMORY_FOR_INTERNAL 96
+#define RESERVED_MEMORY_FOR_REFRESH 256
+#define AVAILABLE_MEMORY (MEMORY_SIZE - RESERVED_MEMORY_FOR_INTERPRETER - RESERVED_MEMORY_FOR_INTERNAL - RESERVED_MEMORY_FOR_REFRESH)
+#define CHARACTERS_ARRAY_SIZE 80
+#define FONT_ADDRESS 0x50
+#define PROGRAM_START_ADDRESS 0x200
+#define PROGRAM_MAX_ADDRESS 0xE9F
 
 #define GET_BIT(byte, bit) (byte & ( 0x80u >> bit ))
 #define GET_FAMILY(opcode) (opcode & 0xF000) >> 0xC
@@ -257,8 +236,8 @@ static bool exeIntrucFamilyD(Chip8 *restrict pchip8, uint16_t opcode) {
   const uint8_t Vy = GET_VY(opcode);
   const uint8_t N = GET_N(opcode);
 
-  const uint8_t xMax = LOGICAL_WIDTH;
-  const uint8_t yMax = LOGICAL_HEIGHT;
+  const uint8_t xMax = PIXEL_WIDTH;
+  const uint8_t yMax = PIXEL_HEIGHT;
 
   // Initial location is wrapped around the screen using modulo if it goes over either direction
   const uint8_t xPos = reg[Vx] % xMax;
@@ -279,7 +258,7 @@ static bool exeIntrucFamilyD(Chip8 *restrict pchip8, uint16_t opcode) {
 
         if(spritePixel > 0) {
 
-          const uint16_t pixelIndex = (xPos + column) + LOGICAL_WIDTH * (yPos + row);
+          const uint16_t pixelIndex = (xPos + column) + PIXEL_WIDTH * (yPos + row);
 
           if(pixels[pixelIndex] > 0) {
             reg[0xF] = 1;
@@ -459,6 +438,36 @@ bool loadROM(Chip8 *restrict pchip8, const char *restrict pfilePath) {
   fclose(pROM);
 
   return true;
+
+}
+
+uint32_t *getPixels(Chip8 *restrict pchip8) {
+  return pchip8->screenPixels;
+}
+
+bool checkDrawFlag(Chip8 *restrict pchip8) {
+
+  if(pchip8->readyToRender) {
+    pchip8->readyToRender = false;
+    return true;
+  }
+
+  return false;
+
+}
+
+bool checkSoundTimer(Chip8 *restrict pchip8) {
+
+  return pchip8->soundTimer > 0;
+
+}
+
+bool tickTimers(Chip8 *restrict pchip8) {
+
+    if(pchip8->soundTimer > 0) pchip8->soundTimer--;
+    if(pchip8->delayTimer > 0) pchip8->delayTimer--;
+
+    return true;
 
 }
 
