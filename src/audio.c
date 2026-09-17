@@ -1,9 +1,9 @@
 #include "audio.h"
 
 #define WAVE_AMPLITUDE 0.1f
-#define CYCLE_PER_S 110
-#define SAMPLE_PER_S 44100
-#define MAX_SOUND_LENGTH_MS 500
+#define CYCLE_PER_S 100
+#define SAMPLE_PER_S 50000
+#define MAX_SOUND_LENGTH_MS 125
 
 #define NUM_SAMPLES_PER_CYCLE ((SAMPLE_PER_S / CYCLE_PER_S) % 2 == 1 ? (SAMPLE_PER_S / CYCLE_PER_S + 1) : (SAMPLE_PER_S / CYCLE_PER_S))
 #define MAX_SAMPLES ((MAX_SOUND_LENGTH_MS * SAMPLE_PER_S) / 1000)
@@ -46,9 +46,8 @@ bool initAudioContext(AudioContext *pacontext) {
     }
 
     for (uint32_t sample = 0; sample < NUM_SAMPLES_PER_CYCLE; sample++) {
-        cycle[sample] = sample < (NUM_SAMPLES_PER_CYCLE / 2) ? WAVE_AMPLITUDE : -WAVE_AMPLITUDE;
+        cycle[sample] = sample < (NUM_SAMPLES_PER_CYCLE / 2) ? WAVE_AMPLITUDE : 0.0f;
     }
-
     
     return true;
 
@@ -56,15 +55,22 @@ bool initAudioContext(AudioContext *pacontext) {
 
 bool playAudio(AudioContext *restrict pacontext) {
 
-    uint32_t i;
-    for(i = 0; i < MAX_SAMPLES; i++) {
-        buff[i] = cycle[cycleIndex];
-        cycleIndex = (cycleIndex + 1) % NUM_SAMPLES_PER_CYCLE;
+    int numQueued = SDL_GetAudioStreamQueued(pacontext->stream);
+    if( numQueued == -1 ) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to get audio stream queued: %s", SDL_GetError());
+        return false;
     }
 
-    if( !SDL_PutAudioStreamData(pacontext->stream, buff, i * sizeof(float)) ) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to put audio stream data: %s", SDL_GetError());
-        return false;
+    if(numQueued == 0) {
+        for(uint32_t i = 0; i < MAX_SAMPLES; i++) {
+            buff[i] = cycle[cycleIndex];
+            cycleIndex = (cycleIndex + 1) % NUM_SAMPLES_PER_CYCLE;
+        }
+
+        if( !SDL_PutAudioStreamData(pacontext->stream, buff, MAX_SAMPLES * sizeof(float)) ) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to put audio stream data: %s", SDL_GetError());
+            return false;
+        }
     }
 
     return true;
@@ -72,10 +78,19 @@ bool playAudio(AudioContext *restrict pacontext) {
 }
 
 bool clearAudio(AudioContext *restrict pacontext) {
-    
-    if( !SDL_ClearAudioStream(pacontext->stream) ) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to clear audio stream: %s", SDL_GetError());
+
+    float tempBuff;
+    if( SDL_GetAudioStreamData(pacontext->stream, &tempBuff, sizeof(float)) == -1 ) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to get audio stream data: %s", SDL_GetError());
         return false;
+    }
+
+    if( tempBuff == 0.0f ) {
+        if( !SDL_ClearAudioStream(pacontext->stream) ) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to clear audio stream: %s", SDL_GetError());
+            return false;
+        }
+        cycleIndex = 0;
     }
 
     return true;
