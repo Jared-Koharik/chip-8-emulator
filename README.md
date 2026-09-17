@@ -17,12 +17,12 @@ Requires [SDL3]()
 3. ✅ [3-corax+.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/3-corax%2B.ch8)
 4. ✅ [4-flags.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/4-flags.ch8)
 5. ⚠️ [5-quirks.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/5-quirks.ch8)
-    * Not all quirks are implemented
+    * Display Wait is not implemented
 6. ✅ [6-keypad.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/6-keypad.ch8)
 7. ✅ [7-beep.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/7-beep.ch8)
     * Sound is fixed for a low enough MAX_SOUND_LENGTH_MS macro value
 8. ❌ [8-scrolling.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/8-scrolling.ch8)
-    * Not implemented
+    * Not implemented, this test only applies to the SUPER-CHIP and XO-CHIP
 </details>
 
 <details>

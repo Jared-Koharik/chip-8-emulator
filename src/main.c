@@ -9,7 +9,7 @@
 #include <SDL3/SDL_main.h>
 
 #define TIMER_FREQ_S 60.0f
-#define INSTRUCTION_FREQ_S 1000.0f
+#define INSTRUCTION_FREQ_S 250.0f
 #define MS_PER_TIMER_DECREMENT (1000.0 / TIMER_FREQ_S)
 #define MS_PER_INSTRUCTION_EXECUTE (1000.0 / INSTRUCTION_FREQ_S)
 
@@ -64,7 +64,10 @@ int main(int argc, char *argv[]) {
     prevTime = nowTime;
 
     while( instructionCounter >= MS_PER_INSTRUCTION_EXECUTE) {
-      executeNextInstruction(&chip8);
+      if( !executeNextInstruction(&chip8) ) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failure to execute unknown instruction");
+        context.quit = true;
+      }
       instructionCounter -= MS_PER_INSTRUCTION_EXECUTE;
     }
 
