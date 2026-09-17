@@ -19,8 +19,8 @@ Requires [SDL3]()
 5. ⚠️ [5-quirks.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/5-quirks.ch8)
     * Not all quirks are implemented
 6. ✅ [6-keypad.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/6-keypad.ch8)
-7. ⚠️ [7-beep.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/7-beep.ch8)
-    * Sound is produced, but randomly jumps. Likely due to improper square wave generation.
+7. ✅ [7-beep.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/7-beep.ch8)
+    * Sound is fixed for a low enough MAX_SOUND_LENGTH_MS macro value
 8. ❌ [8-scrolling.ch8](https://github.com/Timendus/chip8-test-suite/blob/main/bin/8-scrolling.ch8)
     * Not implemented
 </details>
