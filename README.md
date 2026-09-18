@@ -1,12 +1,33 @@
 # chip-8-emulator
 A Chip8 interpreter and emulator written in C using SDL3
 
+![Picture mid game of br8kout ROM](./images/br8koutROM.png)
+
 ## Features
-- Specify classic or modern Chip8 behavior by including the `-c` or `-m` flag
+- Specify classic or modern mode when loading a ROM
+- Video, audio, and input powered by SDL3
 
-## Build
+## Build and Use
 
-Requires [SDL3]()
+Requires:
+* [SDL3](https://wiki.libsdl.org/SDL3/FrontPage)
+* [pkg-config](https://gitlab.freedesktop.org/pkg-config/pkg-config)
+* [gcc](https://gcc.gnu.org/)
+* Linux OS
+
+1. cd into install location
+2. run `make`
+3. run `./build/main { -c | -m } <rom-file-path>`
+
+## Controls
+
+The left shows the normal keyboard inputs and how they are mapped to the traditional Chip8 keypad
+
+Keyboard   Chip8 Keypad
+1 2 3 4    1 2 3 C
+Q W E R -> 4 5 6 D
+A S D F    7 8 9 E
+Z X C V    A 0 B F
 
 # Tests and Validations
 <details>
@@ -30,6 +51,11 @@ Requires [SDL3]()
 
 1. ✅ [test_opcode.ch8](https://github.com/corax89/chip8-test-rom/blob/master/test_opcode.ch8)
 </details>
+
+# Limitations
+* SUPER-CHIP is not implemented
+* XO-CHIP is not implemented
+* Display wait quirk is not implemented
 
 ## Sources:
 * https://en.wikipedia.org/wiki/CHIP-8

@@ -31,7 +31,7 @@ static void freeAppContext(AppContext *restrict pcontext);
 
 int main(int argc, char *argv[]) {
 
-  if(argc != 3) {
+  if( argc != 3 || (strcmp(argv[1], "-c") != 0 && strcmp(argv[1], "-m") != 0) ) {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Usage: %s { -m | -c } <rom-file-path>", argv[0]);
     return EXIT_FAILURE;
   }

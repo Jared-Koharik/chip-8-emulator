@@ -3,13 +3,13 @@
 #define WAVE_AMPLITUDE 0.1f
 #define CYCLE_PER_S 100
 #define SAMPLE_PER_S 50000
-#define MAX_SOUND_LENGTH_MS 125
+#define MAX_SOUND_LENGTH_MS 50
 
 #define NUM_SAMPLES_PER_CYCLE ((SAMPLE_PER_S / CYCLE_PER_S) % 2 == 1 ? (SAMPLE_PER_S / CYCLE_PER_S + 1) : (SAMPLE_PER_S / CYCLE_PER_S))
 #define MAX_SAMPLES ((MAX_SOUND_LENGTH_MS * SAMPLE_PER_S) / 1000)
 
-static float buff[MAX_SAMPLES] = {};
-static float cycle[NUM_SAMPLES_PER_CYCLE] = {};
+static float buff[MAX_SAMPLES] = { 0 };
+static float cycle[NUM_SAMPLES_PER_CYCLE] = { 0 };
 static int cycleIndex = 0;
 
 bool initAudioContext(AudioContext *pacontext) {

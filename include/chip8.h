@@ -43,7 +43,6 @@ uint32_t *getPixels(Chip8 *restrict pchip8);
 
 bool checkDrawFlag(Chip8 *restrict pchip8);
 bool checkSoundTimer(Chip8 *restrict pchip8);
-bool checkStall(Chip8 *restrict pchip8);
 
 bool tickTimers(Chip8 *restrict pchip8);
 bool executeNextInstruction(Chip8 *restrict pchip8);

@@ -1,11 +1,11 @@
 CC := gcc
-CF := -Wall -Wextra
+CF := -Wall -Wextra -pedantic
 CI := $(shell pkg-config --cflags sdl3)
 CL := $(shell pkg-config --libs sdl3)
 
 OBJ := object/main.o object/chip8.o object/video.o object/audio.o object/input.o
 
-.PHONY: all run debug clean
+.PHONY: all run clean
 
 all: build/main
 
@@ -17,20 +17,14 @@ object/%.o: src/%.c | object/
 
 -include $(OBJ:.o=.d)
 
-debug: $(OBJ) | debugbuild/
-	$(CC) -g -O0 -fsanitize=address $(CF) $(OBJ) -o debugbuild/main $(CL)
-
 run: build/main
 	./build/main $(ARGS)
 
 clean:
-	rm -rf build/ debugbuild/ object/
+	rm -rf build/ dobject/
 
 build/:
 	mkdir -p build/
 
 object/:
 	mkdir -p object/
-
-debugbuild/:
-	mkdir -p debugbuild/

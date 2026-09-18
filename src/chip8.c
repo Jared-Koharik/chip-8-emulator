@@ -17,7 +17,7 @@
 #define PROGRAM_MAX_ADDRESS 0xE9F
 
 #define GET_BIT(byte, bit) (byte & ( 0x80u >> bit ))
-#define GET_FAMILY(opcode) (opcode & 0xF000) >> 0xC
+#define GET_FAMILY(opcode) ((opcode & 0xF000) >> 0xC)
 #define GET_VX(opcode) ((opcode & 0x0F00) >> 0x8)
 #define GET_VY(opcode) ((opcode & 0x00F0) >> 0x4)
 #define GET_N(opcode) (opcode & 0x000F)
