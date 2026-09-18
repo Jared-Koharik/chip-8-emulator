@@ -22,13 +22,12 @@ Requires:
 ## Controls
 
 The left shows the normal keyboard inputs and how they are mapped to the traditional Chip8 keypad
-
-| Keyboard |     | CHIP8  |
-|:--------:|:---:|:------:|
-| 1 2 3 4  |     | 1 2 3 C|
-| Q W E R  |     | 4 5 6 D|
-| A S D F  |     | 7 8 9 E|
-| Z X C V  |     | A 0 B F|
+|    Keyboard   |---|     Chip8     |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 2 | 3 | 4 | - | 1 | 2 | 3 | C |
+| Q | W | E | R | - | 4 | 5 | 6 | D |
+| A | S | D | F | - | 7 | 8 | 9 | E |
+| Z | X | C | V | - | A | 0 | B | F |
 
 # Tests and Validations
 <details>
